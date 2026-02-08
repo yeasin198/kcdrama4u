@@ -447,3 +447,9 @@ def delete_episode(mid, index):
 
 if __name__ == '__main__':
     app.run(debug=True)
+    # main.py এর একদম শেষে এটি পরিবর্তন করুন
+if __name__ == '__main__':
+    app.run(debug=True)
+
+# Vercel এর জন্য এটিও নিশ্চিত করুন যে app অবজেক্টটি ফাইলের শুরুতে আছে
+# app = Flask(__name__)
