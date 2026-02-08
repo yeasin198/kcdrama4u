@@ -4,102 +4,119 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 app = Flask(__name__)
-app.secret_key = "movies_secret_key"
+app.secret_key = "movies_full_system_key"
 
 # --- MongoDB Connection ---
-# আপনি চাইলে এই URI টি আপনার MongoDB Atlas থেকে পরিবর্তন করে নিতে পারেন
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Demo270:Demo270@cluster0.ls1igsg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 client = MongoClient(MONGO_URI)
 db = client['webseries_db']
 series_collection = db['series']
+settings_collection = db['settings']
 
-# --- CSS Design (Responsive for Mobile & Desktop) ---
-COMMON_STYLE = """
+# --- ডাইনামিক সেটিংস লোড করার ফাংশন ---
+def get_site_settings():
+    default_config = {
+        "site_name": "WebSeries BD",
+        "primary_color": "#E50914",
+        "bg_color": "#0b0b0b",
+        "card_bg_color": "#1a1a1a",
+        "text_color": "#ffffff",
+        "badge_color": "#E50914",
+        "lang_color": "#aaaaaa",
+        "ads": []
+    }
+    config = settings_collection.find_one({"type": "site_config"})
+    if not config:
+        settings_collection.insert_one({"type": "site_config", **default_config})
+        return default_config
+    return config
+
+# --- রেসপন্সিভ এবং ডাইনামিক CSS (মোবাইল ও ডেক্সটপ অটো মোড) ---
+def get_dynamic_style(s):
+    return f"""
 <style>
-    :root { --primary: #E50914; --bg: #0b0b0b; --card-bg: #1a1a1a; --text: #ffffff; --border: #333; }
-    body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; overflow-x: hidden; }
+    :root {{ 
+        --primary: {s['primary_color']}; 
+        --bg: {s['bg_color']}; 
+        --card-bg: {s['card_bg_color']}; 
+        --text: {s['text_color']}; 
+        --badge: {s['badge_color']};
+        --lang: {s['lang_color']};
+        --border: #333; 
+    }}
+    body {{ background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; overflow-x: hidden; }}
     
-    /* Header & Navigation */
-    header { background: #000; padding: 15px 5%; display: flex; flex-direction: column; align-items: center; border-bottom: 2px solid var(--primary); sticky: top; position: sticky; top: 0; z-index: 1000; }
-    @media (min-width: 768px) { header { flex-direction: row; justify-content: space-between; } }
-    .logo { color: var(--primary); font-size: 26px; font-weight: bold; text-decoration: none; text-transform: uppercase; margin-bottom: 10px; }
-    @media (min-width: 768px) { .logo { margin-bottom: 0; } }
-
-    /* Search Box */
-    .search-container { width: 100%; max-width: 500px; display: flex; background: #222; border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
-    .search-container input { border: none; background: transparent; color: white; padding: 10px; width: 100%; outline: none; }
-    .search-container button { background: var(--primary); border: none; color: white; padding: 0 20px; cursor: pointer; font-weight: bold; }
-
-    /* Admin Nav Links */
-    .nav-links { margin-top: 10px; font-size: 14px; }
-    @media (min-width: 768px) { .nav-links { margin-top: 0; } }
-    .nav-links a { color: #aaa; text-decoration: none; margin-left: 15px; transition: 0.3s; }
-    .nav-links a:hover { color: var(--primary); }
-
-    /* Main Container */
-    .container { padding: 20px 5%; }
+    /* Header (Auto Responsive) */
+    header {{ background: #000; padding: 15px 5%; display: flex; flex-direction: column; align-items: center; border-bottom: 2px solid var(--primary); position: sticky; top: 0; z-index: 1000; }}
+    @media (min-width: 768px) {{ header {{ flex-direction: row; justify-content: space-between; }} }}
     
-    /* Movie Grid */
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; }
-    @media (min-width: 768px) { .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; } }
+    .logo {{ color: var(--primary); font-size: 26px; font-weight: bold; text-decoration: none; text-transform: uppercase; margin-bottom: 10px; }}
+    @media (min-width: 768px) {{ .logo {{ margin-bottom: 0; }} }}
 
-    /* Movie Card */
-    .card { background: var(--card-bg); border-radius: 10px; overflow: hidden; position: relative; text-decoration: none; color: white; transition: 0.4s; border: 1px solid var(--border); display: block; }
-    .card:hover { transform: translateY(-8px); border-color: var(--primary); box-shadow: 0 5px 15px rgba(229, 9, 20, 0.3); }
-    .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; }
-    .badge { position: absolute; top: 8px; left: 8px; background: var(--primary); color: white; padding: 3px 10px; font-size: 11px; border-radius: 4px; font-weight: bold; }
-    .card-info { padding: 12px; text-align: center; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .search-container {{ width: 100%; max-width: 500px; display: flex; background: #222; border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }}
+    .search-container input {{ border: none; background: transparent; color: white; padding: 10px; width: 100%; outline: none; }}
+    .search-container button {{ background: var(--primary); border: none; color: white; padding: 0 20px; cursor: pointer; font-weight: bold; }}
+
+    .nav-links {{ margin-top: 10px; font-size: 14px; display: flex; gap: 15px; }}
+    .nav-links a {{ color: #aaa; text-decoration: none; transition: 0.3s; }}
+    .nav-links a:hover {{ color: var(--primary); }}
+
+    /* Main Grid (Mobile 2 Columns, Desktop 5+ Columns) */
+    .container {{ padding: 20px 5%; }}
+    .grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }}
+    @media (min-width: 480px) {{ .grid {{ grid-template-columns: repeat(3, 1fr); }} }}
+    @media (min-width: 768px) {{ .grid {{ grid-template-columns: repeat(4, 1fr); }} }}
+    @media (min-width: 1024px) {{ .grid {{ grid-template-columns: repeat(5, 1fr); gap: 20px; }} }}
+
+    .card {{ background: var(--card-bg); border-radius: 10px; overflow: hidden; position: relative; text-decoration: none; color: white; transition: 0.4s; border: 1px solid var(--border); display: block; }}
+    .card:hover {{ transform: translateY(-8px); border-color: var(--primary); }}
+    .card img {{ width: 100%; aspect-ratio: 2/3; object-fit: cover; }}
+    .badge {{ position: absolute; top: 8px; left: 8px; background: var(--badge); color: white; padding: 3px 10px; font-size: 11px; border-radius: 4px; font-weight: bold; }}
+    .card-info {{ padding: 10px; text-align: center; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
 
     /* Detail View */
-    .detail-flex { display: flex; flex-direction: column; gap: 30px; }
-    @media (min-width: 768px) { .detail-flex { flex-direction: row; } }
-    .poster-img { width: 100%; max-width: 300px; border-radius: 15px; border: 3px solid var(--border); align-self: center; }
-    .info-content { flex: 1; }
-    .info-content h1 { margin-top: 0; font-size: 32px; color: var(--primary); }
-    .story { color: #ccc; line-height: 1.6; background: #1a1a1a; padding: 15px; border-radius: 8px; border-left: 4px solid var(--primary); }
+    .detail-flex {{ display: flex; flex-direction: column; gap: 30px; }}
+    @media (min-width: 768px) {{ .detail-flex {{ flex-direction: row; }} }}
+    .poster-img {{ width: 100%; max-width: 300px; border-radius: 15px; border: 2px solid var(--border); align-self: center; }}
+    .info-content {{ flex: 1; }}
+    .info-content h1 {{ margin-top: 0; font-size: 32px; color: var(--primary); }}
+    .lang-label {{ color: var(--lang); font-weight: bold; }}
+    .story {{ color: #ccc; line-height: 1.6; background: #1a1a1a; padding: 15px; border-radius: 8px; border-left: 4px solid var(--primary); margin-top: 15px; }}
 
-    /* Episode List */
-    .ep-box { background: #1a1a1a; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid var(--border); }
-    .ep-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-    .btn { padding: 10px 20px; border-radius: 5px; text-decoration: none; color: white; font-size: 13px; font-weight: bold; transition: 0.3s; text-align: center; flex: 1; min-width: 100px; }
-    .btn-dl { background: #27ae60; } .btn-dl:hover { background: #219150; }
-    .btn-st { background: #2980b9; } .btn-st:hover { background: #216999; }
-    .btn-tg { background: #0088cc; } .btn-tg:hover { background: #0077b3; }
+    .ep-box {{ background: #1a1a1a; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid var(--border); }}
+    .ep-btns {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }}
+    .btn {{ padding: 10px 15px; border-radius: 5px; text-decoration: none; color: white; font-size: 12px; font-weight: bold; text-align: center; flex: 1; min-width: 100px; }}
+    .btn-dl {{ background: #27ae60; }} .btn-st {{ background: #2980b9; }} .btn-tg {{ background: #0088cc; }}
 
-    /* Admin Panel Styling */
-    .admin-table-container { overflow-x: auto; margin-top: 20px; }
-    .admin-table { width: 100%; border-collapse: collapse; min-width: 600px; }
-    .admin-table th, .admin-table td { padding: 12px; border: 1px solid var(--border); text-align: left; }
-    .admin-table th { background: #222; }
-    .action-btns a { text-decoration: none; padding: 5px 12px; border-radius: 4px; font-size: 12px; margin-right: 5px; color: white; }
-    .edit-btn { background: #f39c12; }
-    .del-btn { background: #e74c3c; border: none; cursor: pointer; color: white; padding: 5px 12px; border-radius: 4px; font-size: 12px; }
-
-    /* Form Styling */
-    .form-card { max-width: 800px; margin: auto; background: #1a1a1a; padding: 30px; border-radius: 15px; border: 1px solid var(--border); }
-    .form-group { margin-bottom: 15px; }
-    .form-group label { display: block; margin-bottom: 5px; color: #aaa; }
-    input, textarea, select { width: 100%; padding: 12px; background: #222; color: white; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; }
-    .submit-btn { width: 100%; padding: 15px; background: var(--primary); border: none; color: white; font-weight: bold; font-size: 18px; border-radius: 8px; cursor: pointer; margin-top: 20px; box-shadow: 0 4px 15px rgba(229, 9, 20, 0.4); }
-    .ep-input-group { background: #262626; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px dashed #555; position: relative; }
-    .add-ep-btn { background: #444; color: white; padding: 10px; border: none; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 10px; }
+    /* Admin UI */
+    .admin-table-container {{ overflow-x: auto; margin-top: 20px; }}
+    .admin-table {{ width: 100%; border-collapse: collapse; min-width: 600px; color: white; }}
+    .admin-table td, .admin-table th {{ padding: 12px; border: 1px solid var(--border); }}
+    .form-card {{ max-width: 800px; margin: auto; background: #1a1a1a; padding: 25px; border-radius: 15px; border: 1px solid var(--border); }}
+    label {{ display: block; margin-top: 10px; font-size: 14px; color: #aaa; }}
+    input, textarea {{ width: 100%; padding: 12px; background: #222; color: white; border: 1px solid var(--border); border-radius: 6px; margin-top: 5px; box-sizing: border-box; }}
+    .submit-btn {{ width: 100%; padding: 15px; background: var(--primary); border: none; color: white; font-weight: bold; cursor: pointer; border-radius: 8px; margin-top: 20px; }}
+    .ep-input-group {{ background: #262626; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px dashed #555; }}
+    
+    .ad-container {{ margin: 20px 0; text-align: center; }}
 </style>
 """
 
 # --- Header Helper ---
-def get_header(admin_view=False):
-    action_url = "/admin" if admin_view else "/"
+def get_header(s, is_admin=False):
+    target = "/admin" if is_admin else "/"
     return f"""
     <header>
-        <a href="/" class="logo">WebSeries BD</a>
-        <form action="{action_url}" method="GET" class="search-container">
+        <a href="/" class="logo">{s['site_name']}</a>
+        <form action="{target}" method="GET" class="search-container">
             <input type="text" name="q" placeholder="মুভি বা সিরিজ খুঁজুন..." value="{request.args.get('q', '')}">
             <button type="submit">Search</button>
         </form>
         <div class="nav-links">
             <a href="/">Home</a>
             <a href="/admin">Admin View</a>
-            { '<a href="/admin/add" style="background:var(--primary); color:white; padding:5px 10px; border-radius:5px; margin-left:10px;">+ New Post</a>' if admin_view else '' }
+            <a href="/admin/settings" style="color: #f1c40f;">Site Settings</a>
+            { '<a href="/admin/add" style="background:var(--primary); color:white; padding:5px 10px; border-radius:5px;">+ Add New</a>' if is_admin else '' }
         </div>
     </header>
     """
@@ -108,165 +125,141 @@ def get_header(admin_view=False):
 
 @app.route('/')
 def home():
-    query = request.args.get('q', '')
-    filt = {"title": {"$regex": query, "$options": "i"}} if query else {}
+    s = get_site_settings()
+    q = request.args.get('q', '')
+    filt = {"title": {"$regex": q, "$options": "i"}} if q else {}
     movies = list(series_collection.find(filt).sort("_id", -1))
     
-    html = f"""<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>WebSeries BD - Home</title>{COMMON_STYLE}</head><body>"""
-    html += get_header()
+    html = f"<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>{get_dynamic_style(s)}</head><body>{get_header(s)}"
     html += '<div class="container">'
-    html += f'<h3>{"সার্চ রেজাল্ট: " + query if query else "সব মুভি এবং সিরিজ"}</h3>'
-    html += '<div class="grid">'
-    for s in movies:
-        html += f"""
-        <a href="/series/{s['_id']}" class="card">
-            {f'<div class="badge">{s.get("poster_text")}</div>' if s.get("poster_text") else ''}
-            <img src="{s.get('poster')}" alt="Poster">
-            <div class="card-info">{s.get('title')} ({s.get('year')})</div>
-        </a>
-        """
-    if not movies:
-        html += '<p style="text-align:center; grid-column: 1/-1;">কোনো মুভি পাওয়া যায়নি!</p>'
-    html += '</div></div></body></html>'
+    # বিজ্ঞাপনের জন্য লুপ (প্রথম ২টা অ্যাড উপরে দেখাবে)
+    for ad in s['ads'][:2]: html += f'<div class="ad-container">{ad}</div>'
+    
+    html += f'<h3>{"সার্চ রেজাল্ট: " + q if q else "সব মুভি এবং ওয়েব সিরিজ"}</h3><div class="grid">'
+    for m in movies:
+        html += f"""<a href="/series/{m['_id']}" class="card">
+            {f'<div class="badge">{m["poster_text"]}</div>' if m.get("poster_text") else ''}
+            <img src="{m['poster']}"><div class="card-info">{m['title']} ({m['year']})</div></a>"""
+    html += '</div>'
+    
+    # বাকি অ্যাডগুলো নিচে দেখাবে
+    for ad in s['ads'][2:]: html += f'<div class="ad-container">{ad}</div>'
+    html += '</div></body></html>'
     return render_template_string(html)
 
 @app.route('/series/<id>')
 def detail(id):
-    s = series_collection.find_one({"_id": ObjectId(id)})
-    if not s: return "Not Found", 404
+    s = get_site_settings()
+    m = series_collection.find_one({"_id": ObjectId(id)})
+    if not m: return "Not Found", 404
     
-    html = f"""<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{s.get('title')}</title>{COMMON_STYLE}</head><body>"""
-    html += get_header()
-    html += f"""
-    <div class="container">
-        <div class="detail-flex">
-            <img src="{s.get('poster')}" class="poster-img">
-            <div class="info-content">
-                <h1>{s.get('title')} ({s.get('year')})</h1>
-                <p><b>ভাষা:</b> {s.get('language')} | <b>সাল:</b> {s.get('year')}</p>
-                <div class="story"><b>গল্প:</b><br>{s.get('description')}</div>
-            </div>
-        </div>
-        <hr style="border:0; border-top:1px solid var(--border); margin:40px 0;">
-        <h3>এপিসোড এবং ডাউনলোড লিঙ্ক সমূহ:</h3>
-        {''.join([f'''
-        <div class="ep-box">
-            <strong>Episode No: {ep['ep_no']}</strong>
-            <div class="ep-btns">
-                {f'<a href="{ep["dl_link"]}" class="btn btn-dl" target="_blank">Download</a>' if ep.get("dl_link") else ''}
-                {f'<a href="{ep["st_link"]}" class="btn btn-st" target="_blank">Stream Online</a>' if ep.get("st_link") else ''}
-                {f'<a href="{ep["tg_link"]}" class="btn btn-tg" target="_blank">Telegram File</a>' if ep.get("tg_link") else ''}
-            </div>
-        </div>
-        ''' for ep in s.get('episodes', [])])}
-    </div></body></html>
-    """
-    return render_template_string(html)
+    html = f"<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>{get_dynamic_style(s)}</head><body>{get_header(s)}"
+    html += '<div class="container">'
+    if s['ads']: html += f'<div class="ad-container">{s["ads"][0]}</div>'
 
-# --- Admin Routes (Search, Add, Edit, Delete) ---
+    html += f"""<div class="detail-flex"><img src="{m['poster']}" class="poster-img">
+            <div class="info-content"><h1>{m['title']} ({m['year']})</h1>
+                <p><span class="lang-label">ভাষা: {m['language']}</span> | <b>সাল:</b> {m['year']}</p>
+                <div class="story"><b>গল্প:</b><br>{m['description']}</div></div></div><hr style="border:0.5px solid #333; margin:30px 0">"""
+    
+    for ep in m.get('episodes', []):
+        html += f"""<div class="ep-box"><strong>Episode No: {ep['ep_no']}</strong><div class="ep-btns">
+                {f'<a href="{ep["dl_link"]}" class="btn btn-dl" target="_blank">Download</a>' if ep['dl_link'] else ''}
+                {f'<a href="{ep["st_link"]}" class="btn btn-st" target="_blank">Stream</a>' if ep['st_link'] else ''}
+                {f'<a href="{ep["tg_link"]}" class="btn btn-tg" target="_blank">Telegram</a>' if ep['tg_link'] else ''}
+                </div></div>"""
+    
+    for ad in s['ads'][1:]: html += f'<div class="ad-container">{ad}</div>'
+    html += '</div></body></html>'
+    return render_template_string(html)
 
 @app.route('/admin')
 def admin_panel():
-    query = request.args.get('q', '')
-    filt = {"title": {"$regex": query, "$options": "i"}} if query else {}
+    s = get_site_settings()
+    q = request.args.get('q', '')
+    filt = {"title": {"$regex": q, "$options": "i"}} if q else {}
     movies = list(series_collection.find(filt).sort("_id", -1))
-    
-    html = f"""<!DOCTYPE html><html lang="bn"><head><title>Admin Panel</title>{COMMON_STYLE}</head><body>"""
-    html += get_header(admin_view=True)
-    html += '<div class="container"><h2>মুভি ম্যানেজমেন্ট</h2><div class="admin-table-container">'
-    html += '<table class="admin-table"><thead><tr><th>পোস্টার</th><th>মুভির নাম</th><th>সাল</th><th>অ্যাকশন</th></tr></thead><tbody>'
-    for s in movies:
-        html += f"""
-        <tr>
-            <td><img src="{s.get('poster')}" style="width:50px; border-radius:5px;"></td>
-            <td>{s.get('title')}</td>
-            <td>{s.get('year')}</td>
-            <td class="action-btns">
-                <a href="/admin/edit/{s['_id']}" class="edit-btn">Edit</a>
-                <form action="/admin/delete/{s['_id']}" method="POST" style="display:inline;" onsubmit="return confirm('ডিলেট করতে চান?')">
-                    <button type="submit" class="del-btn">Delete</button>
-                </form>
-            </td>
-        </tr>
-        """
+    html = f"<!DOCTYPE html><html><head>{get_dynamic_style(s)}</head><body>{get_header(s, True)}"
+    html += '<div class="container"><h2>মুভি ম্যানেজমেন্ট</h2><div class="admin-table-container"><table class="admin-table"><thead><tr><th>Poster</th><th>Name</th><th>Year</th><th>Action</th></tr></thead><tbody>'
+    for m in movies:
+        html += f"<tr><td><img src='{m['poster']}' width='40'></td><td>{m['title']}</td><td>{m['year']}</td><td><a href='/admin/edit/{m['_id']}' style='color:orange'>Edit</a> | <form action='/admin/delete/{m['_id']}' method='POST' style='display:inline'><button type='submit' style='color:red; background:none; border:none; cursor:pointer'>Delete</button></form></td></tr>"
     html += '</tbody></table></div></div></body></html>'
+    return render_template_string(html)
+
+@app.route('/admin/settings', methods=['GET', 'POST'])
+def admin_settings():
+    s = get_site_settings()
+    if request.method == 'POST':
+        new_data = {
+            "site_name": request.form.get('site_name'),
+            "primary_color": request.form.get('p_color'),
+            "bg_color": request.form.get('b_color'),
+            "card_bg_color": request.form.get('c_color'),
+            "text_color": request.form.get('t_color'),
+            "badge_color": request.form.get('badge_color'),
+            "lang_color": request.form.get('lang_color'),
+            "ads": [ad for ad in request.form.getlist('ads[]') if ad.strip()]
+        }
+        settings_collection.update_one({"type": "site_config"}, {"$set": new_data})
+        return redirect(url_for('admin_settings'))
+
+    html = f"<!DOCTYPE html><html><head>{get_dynamic_style(s)}</head><body>{get_header(s, True)}"
+    html += f"""<div class="container"><div class="form-card"><h2>সাইট সেটিংস ও বিজ্ঞাপন</h2>
+        <form method="POST">
+            <label>সাইটের নাম:</label><input name="site_name" value="{s['site_name']}">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div><label>থিম কালার:</label><input type="color" name="p_color" value="{s['primary_color']}"></div>
+                <div><label>ব্যাকগ্রাউন্ড কালার:</label><input type="color" name="b_color" value="{s['bg_color']}"></div>
+                <div><label>কার্ড কালার:</label><input type="color" name="c_color" value="{s['card_bg_color']}"></div>
+                <div><label>টেক্সট কালার:</label><input type="color" name="t_color" value="{s['text_color']}"></div>
+                <div><label>ব্যাজ (Badge) কালার:</label><input type="color" name="badge_color" value="{s['badge_color']}"></div>
+                <div><label>ভাষা টেক্সট কালার:</label><input type="color" name="lang_color" value="{s['lang_color']}"></div>
+            </div>
+            <hr><h3>আনলিমিটেড বিজ্ঞাপন (Ad Codes):</h3>
+            <div id="ad-slots">
+                {"".join([f'<div><textarea name="ads[]" rows="3" placeholder="Paste Ad Code Here">{ad}</textarea></div>' for ad in s['ads']])}
+            </div>
+            <button type="button" onclick="addAdSlot()" style="width:100%; margin-top:10px;">+ Add New Ad Slot</button>
+            <button type="submit" class="submit-btn">Save Settings</button>
+        </form></div></div>
+        <script>function addAdSlot(){{ document.getElementById('ad-slots').innerHTML += '<div><textarea name="ads[]" rows="3" placeholder="Paste Ad Code Here"></textarea></div>'; }}</script></body></html>"""
     return render_template_string(html)
 
 @app.route('/admin/add', methods=['GET', 'POST'])
 @app.route('/admin/edit/<id>', methods=['GET', 'POST'])
 def manage_movie(id=None):
+    s = get_site_settings()
     movie = series_collection.find_one({"_id": ObjectId(id)}) if id else None
-    
     if request.method == 'POST':
-        shortener = request.form.get('shortener', "").strip()
+        sh = request.form.get('shortener', "").strip()
         ep_nos = request.form.getlist('ep_no[]')
-        dl_links = request.form.getlist('dl_link[]')
-        st_links = request.form.getlist('st_link[]')
-        tg_links = request.form.getlist('tg_link[]')
-        
-        episodes = []
+        dl_links = request.form.getlist('dl[]')
+        st_links = request.form.getlist('st[]')
+        tg_links = request.form.getlist('tg[]')
+        eps = []
         for i in range(len(ep_nos)):
-            def proc_link(l): return shortener + l.strip() if shortener and l.strip() else l.strip()
-            episodes.append({
-                "ep_no": ep_nos[i],
-                "dl_link": proc_link(dl_links[i]),
-                "st_link": proc_link(st_links[i]),
-                "tg_link": proc_link(tg_links[i])
-            })
-            
-        data = {
-            "title": request.form.get('title'),
-            "year": request.form.get('year'),
-            "language": request.form.get('lang'),
-            "poster": request.form.get('poster'),
-            "poster_text": request.form.get('poster_text'),
-            "description": request.form.get('desc'),
-            "episodes": episodes
-        }
-        
+            def lnk(l): return sh + l.strip() if sh and l.strip() else l.strip()
+            eps.append({"ep_no": ep_nos[i], "dl_link": lnk(dl_links[i]), "st_link": lnk(st_links[i]), "tg_link": lnk(tg_links[i])})
+        data = {"title": request.form.get('title'), "year": request.form.get('year'), "language": request.form.get('lang'), "poster": request.form.get('poster'), "poster_text": request.form.get('poster_text'), "description": request.form.get('desc'), "episodes": eps}
         if id: series_collection.update_one({"_id": ObjectId(id)}, {"$set": data})
         else: series_collection.insert_one(data)
         return redirect(url_for('admin_panel'))
-
-    # Form HTML
-    html = f"""<!DOCTYPE html><html lang="bn"><head><title>Add/Edit Movie</title>{COMMON_STYLE}</head><body>"""
-    html += get_header(admin_view=True)
-    html += f"""<div class="container"><div class="form-card">
-        <h2>{'এডিট করুন: ' + movie['title'] if movie else 'নতুন মুভি যোগ করুন'}</h2>
-        <form method="POST">
-            <div class="form-group"><label>মুভির নাম</label><input name="title" value="{movie['title'] if movie else ''}" required></div>
-            <div style="display:flex; gap:10px;">
-                <div class="form-group" style="flex:1;"><label>সাল</label><input name="year" value="{movie['year'] if movie else ''}" required></div>
-                <div class="form-group" style="flex:1;"><label>ভাষা</label><input name="lang" value="{movie['language'] if movie else ''}" required></div>
-            </div>
-            <div class="form-group"><label>পোস্টার লিঙ্ক (URL)</label><input name="poster" value="{movie['poster'] if movie else ''}" required></div>
-            <div class="form-group"><label>পোস্টার টেক্স (যেমন: HD, 4K)</label><input name="poster_text" value="{movie['poster_text'] if movie else ''}"></div>
-            <div class="form-group"><label>মুভির গল্প</label><textarea name="desc" rows="5">{movie['description'] if movie else ''}</textarea></div>
-            <div class="form-group"><label>লিঙ্ক শর্টনার বেস লিঙ্ক (ঐচ্ছিক)</label><input name="shortener" placeholder="https://stfly.me/api?api=key&url="></div>
-            
-            <h3 style="margin-top:30px; border-bottom:1px solid #444; padding-bottom:5px;">এপিসোড সমূহ:</h3>
-            <div id="ep-container">
-                { "".join([f'''
-                <div class="ep-input-group">
-                    <input name="ep_no[]" placeholder="এপিসোড নাম্বার" value="{e['ep_no']}" required>
-                    <input name="dl_link[]" placeholder="Download Link" value="{e['dl_link']}">
-                    <input name="st_link[]" placeholder="Stream Link" value="{e['st_link']}">
-                    <input name="tg_link[]" placeholder="Telegram Link" value="{e['tg_link']}">
-                </div>
-                ''' for e in movie['episodes']]) if movie else '<div class="ep-input-group"><input name="ep_no[]" placeholder="এপিসোড নং" required><input name="dl_link[]" placeholder="Download Link"><input name="st_link[]" placeholder="Stream Link"><input name="tg_link[]" placeholder="Telegram Link"></div>' }
-            </div>
-            <button type="button" class="add-ep-btn" onclick="addEpisode()">+ নতুন এপিসোড যোগ করুন</button>
-            <button type="submit" class="submit-btn">{'আপডেট করুন' if id else 'পাবলিশ করুন'}</button>
-        </form>
-    </div></div>
-    <script>
-        function addEpisode() {{
-            const div = document.createElement('div');
-            div.className = 'ep-input-group';
-            div.innerHTML = '<input name="ep_no[]" placeholder="এপিসোড নং" required><input name="dl_link[]" placeholder="Download Link"><input name="st_link[]" placeholder="Stream Link"><input name="tg_link[]" placeholder="Telegram Link">';
-            document.getElementById('ep-container').appendChild(div);
-        }}
-    </script></body></html>"""
+    
+    html = f"<!DOCTYPE html><html><head>{get_dynamic_style(s)}</head><body>{get_header(s, True)}<div class='container'><div class='form-card'><form method='POST'>"
+    html += f"<h2>Save Movie</h2><label>মুভির নাম:</label><input name='title' value='{movie['title'] if movie else ''}' required>"
+    html += f"<div style='display:flex; gap:10px;'><input name='year' placeholder='Year' value='{movie['year'] if movie else ''}'><input name='lang' placeholder='Language' value='{movie['language'] if movie else ''}'></div>"
+    html += f"<label>পোস্টার লিঙ্ক:</label><input name='poster' value='{movie['poster'] if movie else ''}' required>"
+    html += f"<label>পোস্টার টেক্স (Badge):</label><input name='poster_text' value='{movie['poster_text'] if movie else ''}'>"
+    html += f"<label>গল্প:</label><textarea name='desc' rows='4'>{movie['description'] if movie else ''}</textarea>"
+    html += f"<label>লিঙ্ক শর্টনার (Base URL):</label><input name='shortener' placeholder='https://short.com/api?link='>"
+    html += "<h3>এপিসোড সমূহ:</h3><div id='ep-list'>"
+    if movie:
+        for ep in movie['episodes']:
+            html += f"<div class='ep-input-group'><input name='ep_no[]' value='{ep['ep_no']}'><input name='dl[]' value='{ep['dl_link']}'><input name='st[]' value='{ep['st_link']}'><input name='tg[]' value='{ep['tg_link']}'></div>"
+    else:
+        html += "<div class='ep-input-group'><input name='ep_no[]' placeholder='Ep No'><input name='dl[]' placeholder='Download'><input name='st[]' placeholder='Stream'><input name='tg[]' placeholder='Telegram'></div>"
+    html += "</div><button type='button' onclick='addEp()'>+ Add More Episode</button><button type='submit' class='submit-btn'>Publish Movie</button></form></div></div>"
+    html += "<script>function addEp(){{ document.getElementById('ep-list').innerHTML += '<div class=\"ep-input-group\"><input name=\"ep_no[]\" placeholder=\"Ep No\"><input name=\"dl[]\" placeholder=\"Download\"><input name=\"st[]\" placeholder=\"Stream\"><input name=\"tg[]\" placeholder=\"Telegram\"></div>'; }}</script></body></html>"
     return render_template_string(html)
 
 @app.route('/admin/delete/<id>', methods=['POST'])
