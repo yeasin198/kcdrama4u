@@ -1,10 +1,10 @@
-from flask import Flask, render_template_string, request, redirect, url_for
+from flask import Flask, render_template_string, request, redirect, url_for, flash
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import requests
 
 app = Flask(__name__)
-app.secret_key = "movie_pro_ultra_v3"
+app.secret_key = "movie_pro_ultra_unlimited_v4"
 
 # --- MongoDB কানেকশন ---
 MONGO_URI = "mongodb+srv://Demo270:Demo270@cluster0.ls1igsg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
@@ -13,11 +13,10 @@ db = client.movie_database
 movies_col = db.movies
 settings_col = db.settings
 
-# --- Helper: URL Shortener ---
+# --- Helper Functions ---
 def shorten_link(url):
     config = settings_col.find_one({"type": "config"})
     if config and config.get('api') and url and url.strip():
-        # এপিআই লিঙ্কে অবশ্যই {url} থাকতে হবে। উদাহরণ: https://api.com/st?api=KEY&url={url}
         api_url = config.get('api').replace("{url}", url)
         try:
             r = requests.get(api_url, timeout=5)
@@ -26,8 +25,13 @@ def shorten_link(url):
             return url
     return url
 
-# --- UI Styles & Scripts ---
-HEAD_CSS = """
+def get_ads_and_config():
+    ads = settings_col.find_one({"type": "ads"}) or {"top": "", "bottom": "", "popup": ""}
+    cfg = settings_col.find_one({"type": "config"}) or {"limit": 15, "slider_limit": 5, "api": ""}
+    return ads, cfg
+
+# --- UI Styles & Assets ---
+HEAD_CONTENT = """
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -35,45 +39,40 @@ HEAD_CSS = """
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
 <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
 <style>
-    body { background-color: #0b0f19; color: white; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+    body { background-color: #0b0f19; color: white; font-family: 'Inter', sans-serif; }
     .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.05); }
     .corner-tag { position: absolute; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 4px; z-index: 10; }
-    .swiper { width: 100%; height: 400px; border-radius: 20px; }
-    .swiper-slide img { width: 100%; height: 100%; object-cover: cover; }
+    .swiper { width: 100%; height: 350px; border-radius: 20px; margin-bottom: 30px; }
+    .swiper-slide img { width: 100%; height: 100%; object-fit: cover; }
+    ::-webkit-scrollbar { display: none; }
 </style>
 """
 
-def get_site_data():
-    ads = settings_col.find_one({"type": "ads"}) or {"top": "", "bottom": "", "popup": ""}
-    cfg = settings_col.find_one({"type": "config"}) or {"limit": 15, "api": ""}
-    return ads, cfg
-
-# --- USER ROUTES ---
+# --- ROUTES ---
 
 @app.route('/')
 def index():
-    ads, cfg = get_site_data()
+    ads, cfg = get_ads_and_config()
     q = request.args.get('q')
     cat = request.args.get('cat')
     
-    # স্লাইডারের জন্য মুভি (যেগুলো 'slider' চেক করা আছে)
-    slider_movies = list(movies_col.find({"in_slider": "on"}).limit(5))
+    # স্লাইডার লজিক
+    s_limit = int(cfg.get('slider_limit', 5))
+    slider_movies = list(movies_col.find({"in_slider": "on"}).sort("_id", -1).limit(s_limit))
     
-    # হোমপেজ মুভি ফিল্টার ও লিমিট
+    # মুভি ফিল্টার ও লিমিট
     filter_query = {}
     if q: filter_query["name"] = {"$regex": q, "$options": "i"}
     if cat: filter_query["category"] = cat
     
-    limit = int(cfg.get('limit', 15))
-    movies = list(movies_col.find(filter_query).sort("_id", -1).limit(limit))
-    
-    # ইউনিক ক্যাটাগরি লিস্ট
+    m_limit = int(cfg.get('limit', 15))
+    movies = list(movies_col.find(filter_query).sort("_id", -1).limit(m_limit))
     categories = movies_col.distinct("category")
     
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>{HEAD_CSS}<title>MoviePro - Premium</title></head>
+    <head>{HEAD_CONTENT}<title>MoviePro - Home</title></head>
     <body>
         <nav class="p-4 glass sticky top-0 z-50 flex justify-between items-center px-6">
             <a href="/" class="text-2xl font-black text-blue-500">MOVIE<span class="text-white">PRO</span></a>
@@ -85,18 +84,17 @@ def index():
         </nav>
 
         <div class="max-w-7xl mx-auto p-4 md:p-6">
-            <div class="mb-6 text-center text-white">{ads['top'] | safe}</div>
+            <div class="mb-6 text-center">{ads['top'] | safe}</div>
 
-            <!-- স্লাইডার -->
             {{% if slider_movies %}}
-            <div class="swiper mySwiper mb-10 shadow-2xl">
+            <div class="swiper mySwiper">
                 <div class="swiper-wrapper">
                     {{% for sm in slider_movies %}}
                     <div class="swiper-slide relative">
-                        <img src="{{{{ sm.poster }}}}" class="object-cover">
+                        <img src="{{{{ sm.poster }}}}" loading="lazy">
                         <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent flex flex-col justify-end p-8">
-                            <h2 class="text-3xl font-black italic">{{{{ sm.name }}}}</h2>
-                            <a href="/movie/{{{{ sm._id }}}}" class="mt-4 bg-blue-600 w-max px-6 py-2 rounded-full font-bold text-sm">WATCH NOW</a>
+                            <h2 class="text-3xl font-black italic uppercase tracking-tighter">{{{{ sm.name }}}}</h2>
+                            <a href="/movie/{{{{ sm._id }}}}" class="mt-4 bg-blue-600 w-max px-8 py-2 rounded-full font-bold text-sm">WATCH NOW</a>
                         </div>
                     </div>
                     {{% endfor %}}
@@ -105,24 +103,23 @@ def index():
             </div>
             {{% endif %}}
 
-            <!-- ক্যাটাগরি ফিল্টার -->
-            <div class="flex gap-3 overflow-x-auto pb-6 scrollbar-hide">
-                <a href="/" class="bg-gray-800 px-6 py-2 rounded-full text-xs font-bold shrink-0">ALL</a>
+            <div class="flex gap-3 overflow-x-auto pb-6">
+                <a href="/" class="bg-gray-800 px-6 py-2 rounded-full text-xs font-bold uppercase shrink-0">ALL</a>
                 {{% for c in categories %}}
-                <a href="/?cat={{{{ c }}}}" class="bg-blue-900/40 border border-blue-500/20 px-6 py-2 rounded-full text-xs font-bold shrink-0 uppercase tracking-widest">{{{{ c }}}}</a>
+                <a href="/?cat={{{{ c }}}}" class="bg-blue-900/30 border border-blue-500/20 px-6 py-2 rounded-full text-xs font-bold uppercase shrink-0">{{{{ c }}}}</a>
                 {{% endfor %}}
             </div>
 
-            <h2 class="text-xl font-bold mb-6 italic text-blue-500">Latest Uploads</h2>
+            <h2 class="text-xl font-bold mb-6 italic text-blue-500 border-l-4 border-blue-500 pl-3">LATEST UPLOADS</h2>
             <div class="grid grid-cols-2 md:grid-cols-5 gap-6">
                 {{% for movie in movies %}}
                 <a href="/movie/{{{{ movie._id }}}}" class="group block relative rounded-2xl overflow-hidden shadow-2xl aspect-[2/3] border border-white/5 bg-gray-900">
-                    <span class="corner-tag top-2 left-2 bg-blue-600">{{{{ movie.tag1 }}}}</span>
-                    <span class="corner-tag top-2 right-2 bg-red-600">{{{{ movie.tag2 }}}}</span>
-                    <span class="corner-tag bottom-2 left-2 bg-yellow-500 text-black">{{{{ movie.tag3 }}}}</span>
-                    <span class="corner-tag bottom-2 right-2 bg-green-600">{{{{ movie.tag4 }}}}</span>
-                    <img src="{{{{ movie.poster }}}}" class="w-full h-full object-cover group-hover:scale-110 transition duration-500">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent p-3 flex flex-col justify-end">
+                    <span class="corner-tag top-2 left-2 bg-blue-600 shadow-lg">{{{{ movie.tag1 }}}}</span>
+                    <span class="corner-tag top-2 right-2 bg-red-600 shadow-lg">{{{{ movie.tag2 }}}}</span>
+                    <span class="corner-tag bottom-2 left-2 bg-yellow-500 text-black shadow-lg">{{{{ movie.tag3 }}}}</span>
+                    <span class="corner-tag bottom-2 right-2 bg-green-600 shadow-lg">{{{{ movie.tag4 }}}}</span>
+                    <img src="{{{{ movie.poster }}}}" class="w-full h-full object-cover group-hover:scale-110 transition duration-500" loading="lazy">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent p-4 flex flex-col justify-end">
                         <div class="font-bold text-xs truncate">{{{{ movie.name }}}}</div>
                         <div class="text-[9px] text-gray-400 mt-1 uppercase">{{{{ movie.year }}}} | {{{{ movie.category }}}}</div>
                     </div>
@@ -137,7 +134,7 @@ def index():
         <script>
             var swiper = new Swiper(".mySwiper", {{
                 pagination: {{ el: ".swiper-pagination", clickable: true }},
-                autoplay: {{ delay: 3000 }},
+                autoplay: {{ delay: 4000 }},
                 loop: true
             }});
         </script>
@@ -149,40 +146,43 @@ def index():
 @app.route('/movie/<id>')
 def movie_details(id):
     movie = movies_col.find_one({"_id": ObjectId(id)})
-    ads, _ = get_site_data()
+    ads, _ = get_ads_and_config()
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>{HEAD_CSS}<title>{{{{ movie.name }}}}</title></head>
+    <head>{HEAD_CONTENT}<title>{{{{ movie.name }}}}</title></head>
     <body class="p-4 md:p-10">
         <div class="max-w-5xl mx-auto">
-            <div class="md:flex gap-10 glass p-8 rounded-3xl border border-white/10">
+            <div class="md:flex gap-10 glass p-8 rounded-[2.5rem] border border-white/10">
                 <img src="{{{{ movie.poster }}}}" class="w-full md:w-72 rounded-2xl shadow-2xl mb-6">
-                <div>
+                <div class="flex-grow">
                     <h1 class="text-4xl font-black mb-4">{{{{ movie.name }}}}</h1>
                     <div class="flex gap-4 mb-6">
-                        <span class="text-blue-400 font-bold uppercase text-xs italic tracking-widest">{{{{ movie.category }}}}</span>
+                        <span class="text-blue-500 font-bold uppercase text-xs tracking-widest">{{{{ movie.category }}}}</span>
                         <span class="text-gray-500 font-bold text-xs">{{{{ movie.year }}}}</span>
+                        <span class="text-gray-500 font-bold text-xs uppercase">{{{{ movie.lang }}}}</span>
                     </div>
-                    <p class="text-gray-400 leading-relaxed text-sm">{{{{ movie.story }}}}</p>
+                    <p class="text-gray-400 leading-relaxed text-sm bg-black/20 p-4 rounded-xl border border-white/5 italic">"{{{{ movie.story }}}}"</p>
                 </div>
             </div>
 
             <div class="mt-10 text-center">{ads['top'] | safe}</div>
 
-            <h2 class="text-2xl font-bold mt-16 mb-8 italic">Download Episodes:</h2>
+            <h2 class="text-2xl font-bold mt-16 mb-8 italic flex items-center gap-3">
+                <span class="w-2 h-8 bg-blue-600 rounded-full"></span> EPISODES & DOWNLOAD LINKS
+            </h2>
             <div class="space-y-6">
                 {{% for ep in movie.episodes %}}
-                <div class="glass p-6 rounded-3xl border-l-4 border-blue-600">
-                    <h3 class="font-bold text-lg mb-4 text-blue-300 italic">Episode: {{{{ ep.ep_no }}}}</h3>
-                    <div class="grid md:grid-cols-2 gap-4">
+                <div class="glass p-6 rounded-3xl border-l-8 border-blue-600 relative overflow-hidden">
+                    <h3 class="font-bold text-xl mb-6 text-blue-400 italic">Episode: {{{{ ep.ep_no }}}}</h3>
+                    <div class="grid md:grid-cols-2 gap-6">
                         {{% for link in ep.links %}}
-                        <div class="bg-black/30 p-4 rounded-xl border border-gray-800">
-                            <span class="text-[10px] uppercase text-gray-500 block mb-3 font-bold italic">Quality: {{{{ link.quality }}}}</span>
-                            <div class="flex gap-2">
-                                <a href="{{{{ link.stream }}}}" target="_blank" class="bg-blue-600 p-2 px-4 rounded-lg text-xs font-bold grow text-center">STREAM</a>
-                                <a href="{{{{ link.download }}}}" target="_blank" class="bg-green-600 p-2 px-4 rounded-lg text-xs font-bold grow text-center text-white">DOWNLOAD</a>
-                                <a href="{{{{ link.telegram }}}}" target="_blank" class="bg-sky-500 p-2 px-4 rounded-lg text-xs font-bold grow text-center text-white"><i class="fab fa-telegram"></i></a>
+                        <div class="bg-black/40 p-5 rounded-2xl border border-gray-800">
+                            <span class="text-[10px] uppercase text-gray-500 block mb-4 font-black tracking-widest">Quality: {{{{ link.quality }}}}</span>
+                            <div class="flex flex-wrap gap-3">
+                                <a href="{{{{ link.stream }}}}" target="_blank" class="flex-grow bg-blue-600 hover:bg-blue-700 py-3 rounded-xl text-xs font-black text-center transition">STREAM</a>
+                                <a href="{{{{ link.download }}}}" target="_blank" class="flex-grow bg-green-600 hover:bg-green-700 py-3 rounded-xl text-xs font-black text-center transition">DOWNLOAD</a>
+                                <a href="{{{{ link.telegram }}}}" target="_blank" class="bg-sky-500 hover:bg-sky-600 px-6 py-3 rounded-xl text-xs font-black text-center transition"><i class="fab fa-telegram"></i></a>
                             </div>
                         </div>
                         {{% endfor %}}
@@ -203,33 +203,38 @@ def movie_details(id):
 @app.route('/admin')
 def admin():
     q = request.args.get('q')
-    movies = list(movies_col.find({"name": {"$regex": q, "$options": "i"}})) if q else list(movies_col.find())
+    filter_q = {"name": {"$regex": q, "$options": "i"}} if q else {}
+    movies = list(movies_col.find(filter_q).sort("_id", -1))
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>{HEAD_CSS}<title>Admin Dashboard</title></head>
+    <head>{HEAD_CONTENT}<title>Admin Dashboard</title></head>
     <body class="p-6">
         <div class="max-w-6xl mx-auto">
-            <div class="flex justify-between items-center mb-10">
-                <h1 class="text-2xl font-black italic text-blue-500 uppercase tracking-tighter">Admin Panel</h1>
-                <div class="flex gap-4">
-                    <a href="/admin/add" class="bg-green-600 p-3 px-6 rounded-xl font-bold text-xs uppercase tracking-widest">+ Add Movie</a>
-                    <a href="/admin/settings" class="bg-gray-800 p-3 px-6 rounded-xl font-bold text-xs uppercase tracking-widest"><i class="fa fa-cog"></i> Settings</a>
+            <div class="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
+                <h1 class="text-2xl font-black italic text-blue-500 uppercase tracking-tighter">ADMIN DASHBOARD</h1>
+                <div class="flex gap-4 w-full md:w-auto">
+                    <form action="/admin" class="flex flex-grow bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+                        <input name="q" placeholder="Search movies..." class="bg-transparent p-3 px-5 outline-none text-sm w-full">
+                        <button class="px-6 text-blue-500"><i class="fa fa-search"></i></button>
+                    </form>
+                    <a href="/admin/add" class="bg-green-600 p-3 px-6 rounded-xl font-bold text-xs uppercase shrink-0">+ MOVIE</a>
+                    <a href="/admin/settings" class="bg-gray-800 p-3 px-6 rounded-xl font-bold text-xs uppercase shrink-0"><i class="fa fa-cog"></i></a>
                 </div>
             </div>
             <div class="grid gap-4">
                 {{% for m in movies %}}
-                <div class="glass p-4 rounded-2xl flex justify-between items-center">
+                <div class="glass p-4 rounded-2xl flex justify-between items-center border border-white/5 hover:border-blue-500/30 transition">
                     <div class="flex items-center gap-4">
-                        <img src="{{{{ m.poster }}}}" class="w-12 h-16 object-cover rounded">
+                        <img src="{{{{ m.poster }}}}" class="w-12 h-16 object-cover rounded shadow-lg">
                         <div>
-                            <h3 class="font-bold">{{{{ m.name }}}}</h3>
-                            <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{{{{ m.category }}}}</span>
+                            <h3 class="font-bold text-sm">{{{{ m.name }}}}</h3>
+                            <span class="text-[9px] font-bold text-blue-400 uppercase tracking-widest">{{{{ m.category }}}}</span>
                         </div>
                     </div>
-                    <div class="flex gap-3">
-                        <a href="/admin/edit/{{{{ m._id }}}}" class="text-yellow-500 p-2 hover:bg-white/5 rounded-xl transition"><i class="fa fa-edit"></i></a>
-                        <a href="/admin/delete/{{{{ m._id }}}}" class="text-red-500 p-2 hover:bg-white/5 rounded-xl transition" onclick="return confirm('Delete?')"><i class="fa fa-trash"></i></a>
+                    <div class="flex gap-2">
+                        <a href="/admin/edit/{{{{ m._id }}}}" class="p-3 bg-yellow-500/10 text-yellow-500 rounded-xl hover:bg-yellow-500 hover:text-white transition"><i class="fa fa-edit"></i></a>
+                        <a href="/admin/delete/{{{{ m._id }}}}" class="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition" onclick="return confirm('Delete?')"><i class="fa fa-trash"></i></a>
                     </div>
                 </div>
                 {{% endfor %}}
@@ -240,66 +245,64 @@ def admin():
     """
     return render_template_string(html, movies=movies)
 
-@app.route('/admin/save_movie', methods=['POST'])
-def save_movie_data():
-    mid = request.form.get('id')
-    data = {
-        "name": request.form['name'], "poster": request.form['poster'],
-        "year": request.form['year'], "lang": request.form['lang'],
-        "category": request.form['category'].upper(),
-        "tag1": request.form['tag1'], "tag2": request.form['tag2'],
-        "tag3": request.form['tag3'], "tag4": request.form['tag4'],
-        "story": request.form['story'],
-        "in_slider": request.form.get('in_slider', 'off')
-    }
-    if mid:
-        movies_col.update_one({"_id": ObjectId(mid)}, {"$set": data})
-    else:
-        data['episodes'] = []
-        movies_col.insert_one(data)
-    return redirect('/admin')
-
-@app.route('/admin/add')
-@app.route('/admin/edit/<id>')
-def movie_form(id=None):
+@app.route('/admin/add', methods=['GET', 'POST'])
+@app.route('/admin/edit/<id>', methods=['GET', 'POST'])
+def manage_movie(id=None):
     movie = movies_col.find_one({"_id": ObjectId(id)}) if id else None
+    if request.method == 'POST':
+        data = {
+            "name": request.form['name'], "poster": request.form['poster'],
+            "year": request.form['year'], "lang": request.form['lang'],
+            "category": request.form['category'].strip().upper(),
+            "tag1": request.form['tag1'], "tag2": request.form['tag2'],
+            "tag3": request.form['tag3'], "tag4": request.form['tag4'],
+            "story": request.form['story'],
+            "in_slider": request.form.get('in_slider', 'off')
+        }
+        if id:
+            movies_col.update_one({"_id": ObjectId(id)}, {"$set": data})
+        else:
+            data['episodes'] = []
+            movies_col.insert_one(data)
+        return redirect('/admin')
+
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>{HEAD_CSS}</head>
+    <head>{HEAD_CONTENT}</head>
     <body class="p-6">
-        <form method="POST" action="/admin/save_movie" class="max-w-4xl mx-auto glass p-10 rounded-[2.5rem] border border-white/10">
-            <input type="hidden" name="id" value="{{{{ movie._id if movie else '' }}}}">
-            <h2 class="text-2xl font-black mb-8 italic uppercase text-blue-500">Movie Settings</h2>
-            
-            <div class="grid md:grid-cols-2 gap-6 mb-6">
-                <input name="name" value="{{{{ movie.name if movie else '' }}}}" placeholder="Movie Name" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none" required>
-                <input name="poster" value="{{{{ movie.poster if movie else '' }}}}" placeholder="Poster URL" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none">
-                <input name="category" value="{{{{ movie.category if movie else '' }}}}" placeholder="Category (Action, Horror, etc.)" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none">
+        <form method="POST" class="max-w-4xl mx-auto glass p-10 rounded-[3rem] border border-white/10">
+            <h2 class="text-3xl font-black mb-10 italic uppercase text-blue-500">Movie Configuration</h2>
+            <div class="grid md:grid-cols-2 gap-6 mb-8">
+                <div class="col-span-2 md:col-span-1">
+                    <label class="text-[10px] font-bold text-gray-500 uppercase ml-2 tracking-widest">Movie Name</label>
+                    <input name="name" value="{{{{ movie.name if movie else '' }}}}" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none focus:border-blue-500 mt-2" required>
+                </div>
+                <div class="col-span-2 md:col-span-1">
+                    <label class="text-[10px] font-bold text-gray-500 uppercase ml-2 tracking-widest">Poster URL</label>
+                    <input name="poster" value="{{{{ movie.poster if movie else '' }}}}" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none focus:border-blue-500 mt-2">
+                </div>
+                <input name="category" value="{{{{ movie.category if movie else '' }}}}" placeholder="Category (e.g. Action)" class="bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none">
                 <div class="flex gap-4">
-                    <input name="year" value="{{{{ movie.year if movie else '' }}}}" placeholder="Year" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none">
-                    <input name="lang" value="{{{{ movie.lang if movie else '' }}}}" placeholder="Lang" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none">
+                    <input name="year" value="{{{{ movie.year if movie else '' }}}}" placeholder="Year" class="bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none w-1/2">
+                    <input name="lang" value="{{{{ movie.lang if movie else '' }}}}" placeholder="Lang" class="bg-black/40 p-4 rounded-2xl border border-gray-800 outline-none w-1/2">
                 </div>
             </div>
-
-            <div class="flex items-center gap-2 mb-6 bg-blue-600/10 p-4 rounded-2xl border border-blue-500/20">
-                <input type="checkbox" name="in_slider" {{{{ 'checked' if movie and movie.in_slider == 'on' else '' }}}} class="w-5 h-5">
-                <label class="text-sm font-bold text-blue-400">Show this movie in Home Slider</label>
+            <div class="flex items-center gap-4 mb-8 bg-blue-600/10 p-5 rounded-2xl border border-blue-500/20">
+                <input type="checkbox" name="in_slider" {{{{ 'checked' if movie and movie.in_slider == 'on' else '' }}}} class="w-6 h-6 rounded">
+                <label class="font-bold text-sm text-blue-400">Include this movie in the Home Slider</label>
             </div>
-
-            <div class="grid grid-cols-4 gap-2 mb-6">
-                <input name="tag1" value="{{{{ movie.tag1 if movie else '' }}}}" placeholder="Top Left" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-xs">
-                <input name="tag2" value="{{{{ movie.tag2 if movie else '' }}}}" placeholder="Top Right" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-xs">
-                <input name="tag3" value="{{{{ movie.tag3 if movie else '' }}}}" placeholder="Bottom Left" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-xs">
-                <input name="tag4" value="{{{{ movie.tag4 if movie else '' }}}}" placeholder="Bottom Right" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-xs">
+            <div class="grid grid-cols-4 gap-4 mb-8">
+                <input name="tag1" value="{{{{ movie.tag1 if movie else '' }}}}" placeholder="T-Left" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-[10px]">
+                <input name="tag2" value="{{{{ movie.tag2 if movie else '' }}}}" placeholder="T-Right" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-[10px]">
+                <input name="tag3" value="{{{{ movie.tag3 if movie else '' }}}}" placeholder="B-Left" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-[10px]">
+                <input name="tag4" value="{{{{ movie.tag4 if movie else '' }}}}" placeholder="B-Right" class="bg-black/40 p-3 rounded-xl border border-gray-800 text-[10px]">
             </div>
-
-            <textarea name="story" placeholder="Story..." class="w-full bg-black/40 p-4 rounded-2xl h-32 border border-gray-800 outline-none mb-6 text-sm leading-relaxed">{{{{ movie.story if movie else '' }}}}</textarea>
-            
+            <textarea name="story" placeholder="Write the movie storyline here..." class="w-full bg-black/40 p-5 rounded-2xl h-40 border border-gray-800 outline-none mb-10 text-sm leading-relaxed">{{{{ movie.story if movie else '' }}}}</textarea>
             <div class="flex gap-4">
-                <button class="bg-blue-600 py-4 px-10 rounded-2xl font-black grow shadow-2xl shadow-blue-600/20 uppercase tracking-widest">SAVE MOVIE</button>
+                <button class="bg-blue-600 py-5 px-12 rounded-3xl font-black grow shadow-2xl shadow-blue-600/30 uppercase tracking-widest">SAVE MOVIE</button>
                 {{% if id %}}
-                <a href="/admin/episodes/{{{{ id }}}}" class="bg-gray-800 px-10 py-4 rounded-2xl font-black text-blue-400 text-center uppercase tracking-widest">Episodes</a>
+                <a href="/admin/episodes/{{{{ id }}}}" class="bg-gray-800 px-12 py-5 rounded-3xl font-black text-blue-400 text-center uppercase tracking-widest">EPISODES</a>
                 {{% endif %}}
             </div>
         </form>
@@ -308,33 +311,31 @@ def movie_form(id=None):
     """
     return render_template_string(html, movie=movie, id=id)
 
-# --- ইপিসোড সিস্টেম (FIXED) ---
-
 @app.route('/admin/episodes/<mid>')
-def manage_episodes_list(mid):
+def episode_list(mid):
     movie = movies_col.find_one({"_id": ObjectId(mid)})
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>{HEAD_CSS}</head>
+    <head>{HEAD_CONTENT}</head>
     <body class="p-6">
         <div class="max-w-4xl mx-auto">
             <div class="flex justify-between items-center mb-10">
-                <h2 class="text-2xl font-black italic text-blue-500 uppercase tracking-tighter">Episodes: {{{{ movie.name }}}}</h2>
-                <a href="/admin/episode/add/{{{{ mid }}}}" class="bg-green-600 p-3 px-8 rounded-xl font-bold text-xs uppercase tracking-widest shadow-xl">+ New Episode</a>
+                <h2 class="text-2xl font-black italic text-blue-500 uppercase">Manage Episodes: {{{{ movie.name }}}}</h2>
+                <a href="/admin/episode/add/{{{{ mid }}}}" class="bg-green-600 p-3 px-8 rounded-2xl font-bold text-xs">+ ADD EPISODE</a>
             </div>
             <div class="grid gap-4">
                 {{% for ep in movie.episodes %}}
-                <div class="glass p-6 rounded-3xl flex justify-between items-center border border-white/5">
-                    <span class="font-bold italic uppercase tracking-widest text-sm">Episode {{{{ ep.ep_no }}}}</span>
+                <div class="glass p-6 rounded-[2rem] flex justify-between items-center border border-white/5">
+                    <span class="font-black italic uppercase text-sm tracking-widest text-blue-400">Episode {{{{ ep.ep_no }}}}</span>
                     <div class="flex gap-4">
-                        <a href="/admin/episode/edit/{{{{ mid }}}}/{{{{ loop.index0 }}}}" class="text-yellow-500 hover:scale-110 transition"><i class="fa fa-edit"></i></a>
-                        <a href="/admin/episode/delete/{{{{ mid }}}}/{{{{ loop.index0 }}}}" class="text-red-500 hover:scale-110 transition" onclick="return confirm('Delete?')"><i class="fa fa-trash"></i></a>
+                        <a href="/admin/episode/edit/{{{{ mid }}}}/{{{{ loop.index0 }}}}" class="text-yellow-500 hover:scale-125 transition"><i class="fa fa-edit"></i></a>
+                        <a href="/admin/episode/delete/{{{{ mid }}}}/{{{{ loop.index0 }}}}" class="text-red-500 hover:scale-125 transition" onclick="return confirm('Delete?')"><i class="fa fa-trash"></i></a>
                     </div>
                 </div>
                 {{% endfor %}}
             </div>
-            <div class="mt-12"><a href="/admin" class="text-gray-500 font-bold underline hover:text-white transition">← Back Dashboard</a></div>
+            <div class="mt-12"><a href="/admin" class="text-gray-500 font-bold underline italic">← Back to Dashboard</a></div>
         </div>
     </body>
     </html>
@@ -342,7 +343,7 @@ def manage_episodes_list(mid):
     return render_template_string(html, movie=movie, mid=mid)
 
 @app.route('/admin/episode/save', methods=['POST'])
-def save_episode_data():
+def save_episode():
     mid = request.form['mid']
     idx = request.form.get('idx')
     links = []
@@ -355,7 +356,7 @@ def save_episode_data():
         })
     new_ep = {"ep_no": request.form['ep_no'], "links": links}
     movie = movies_col.find_one({"_id": ObjectId(mid)})
-    if idx:
+    if idx and idx != "":
         movie['episodes'][int(idx)] = new_ep
         movies_col.update_one({"_id": ObjectId(mid)}, {"$set": {"episodes": movie['episodes']}})
     else:
@@ -370,25 +371,26 @@ def episode_form(mid, idx=None):
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>{HEAD_CSS}</head>
+    <head>{HEAD_CONTENT}</head>
     <body class="p-6">
-        <form method="POST" action="/admin/episode/save" class="max-w-2xl mx-auto glass p-10 rounded-[2.5rem] border border-white/10">
+        <form method="POST" action="/admin/episode/save" class="max-w-2xl mx-auto glass p-10 rounded-[3rem] border border-white/10 shadow-2xl">
             <input type="hidden" name="mid" value="{{{{ mid }}}}">
             <input type="hidden" name="idx" value="{{{{ idx if idx is not None else '' }}}}">
-            <h2 class="text-2xl font-black italic mb-10 uppercase text-blue-500 tracking-tighter">Episode Settings</h2>
-            <input name="ep_no" value="{{{{ ep.ep_no if ep else '' }}}}" placeholder="Episode Number (e.g. 01)" class="w-full bg-black/40 p-5 rounded-2xl mb-8 border border-blue-600/30 outline-none font-bold" required>
+            <h2 class="text-2xl font-black italic mb-10 uppercase text-blue-500 tracking-tighter">Episode Data Entry</h2>
+            <input name="ep_no" value="{{{{ ep.ep_no if ep else '' }}}}" placeholder="Episode Number (e.g. 01)" class="w-full bg-black/40 p-5 rounded-2xl mb-8 border border-blue-600/30 outline-none font-black italic" required>
+            
             {{% for i in [1, 2] %}}
-            <div class="bg-black/30 p-6 rounded-2xl border border-gray-800 space-y-4 mb-6 shadow-inner">
-                <h3 class="text-blue-500 font-bold text-[10px] uppercase italic tracking-[0.2em] mb-4 opacity-50">Quality {{{{ i }}}} Links</h3>
-                <input name="q{{{{i}}}}_n" value="{{{{ ep.links[i-1].quality if ep else '' }}}}" placeholder="Quality Name (e.g. 1080p)" class="w-full bg-black/40 p-3 rounded-xl border border-gray-800 outline-none text-sm">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <input name="q{{{{i}}}}_s" value="{{{{ ep.links[i-1].stream if ep else '' }}}}" placeholder="Stream URL" class="bg-black/40 p-3 rounded-xl text-[10px] border border-gray-800 outline-none">
-                    <input name="q{{{{i}}}}_d" value="{{{{ ep.links[i-1].download if ep else '' }}}}" placeholder="Download URL" class="bg-black/40 p-3 rounded-xl text-[10px] border border-gray-800 outline-none">
-                    <input name="q{{{{i}}}}_t" value="{{{{ ep.links[i-1].telegram if ep else '' }}}}" placeholder="Telegram URL" class="bg-black/40 p-3 rounded-xl text-[10px] border border-gray-800 outline-none">
+            <div class="bg-black/30 p-8 rounded-3xl border border-gray-800 mb-8">
+                <h3 class="text-blue-500 font-black text-[10px] uppercase italic tracking-widest mb-6 opacity-60">Server/Quality Slot {{{{ i }}}}</h3>
+                <input name="q{{{{i}}}}_n" value="{{{{ ep.links[i-1].quality if ep else '' }}}}" placeholder="Quality (e.g. 1080p Web-DL)" class="w-full bg-black/40 p-4 rounded-xl border border-gray-800 outline-none text-sm mb-4">
+                <div class="space-y-3">
+                    <input name="q{{{{i}}}}_s" value="{{{{ ep.links[i-1].stream if ep else '' }}}}" placeholder="Streaming URL" class="w-full bg-black/40 p-3 rounded-xl text-xs border border-gray-800 outline-none">
+                    <input name="q{{{{i}}}}_d" value="{{{{ ep.links[i-1].download if ep else '' }}}}" placeholder="Download URL" class="w-full bg-black/40 p-3 rounded-xl text-xs border border-gray-800 outline-none">
+                    <input name="q{{{{i}}}}_t" value="{{{{ ep.links[i-1].telegram if ep else '' }}}}" placeholder="Telegram/Alt URL" class="w-full bg-black/40 p-3 rounded-xl text-xs border border-gray-800 outline-none">
                 </div>
             </div>
             {{% endfor %}}
-            <button class="w-full bg-blue-600 p-5 rounded-2xl font-black shadow-2xl shadow-blue-600/30 uppercase tracking-[0.1em]">SAVE EPISODE</button>
+            <button class="w-full bg-blue-600 p-5 rounded-3xl font-black shadow-2xl shadow-blue-600/30 uppercase tracking-widest">SAVE EPISODE DATA</button>
         </form>
     </body>
     </html>
@@ -398,7 +400,7 @@ def episode_form(mid, idx=None):
 @app.route('/admin/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
-        settings_col.update_one({"type": "config"}, {"$set": {"api": request.form['api'], "limit": request.form['limit']}}, upsert=True)
+        settings_col.update_one({"type": "config"}, {"$set": {"api": request.form['api'], "limit": request.form['limit'], "slider_limit": request.form['slider_limit']}}, upsert=True)
         settings_col.update_one({"type": "ads"}, {"$set": {"top": request.form['top'], "bottom": request.form['bottom'], "popup": request.form['popup']}}, upsert=True)
         return redirect('/admin')
     cfg = settings_col.find_one({"type": "config"}) or {}
@@ -406,35 +408,39 @@ def settings():
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head>{HEAD_CSS}</head>
+    <head>{HEAD_CONTENT}</head>
     <body class="p-6">
-        <form method="POST" class="max-w-4xl mx-auto glass p-10 rounded-[3rem] space-y-8 border border-white/5">
-            <h2 class="text-3xl font-black italic text-blue-500 uppercase tracking-tighter">Site Management</h2>
-            <div class="grid md:grid-cols-2 gap-6">
-                <div>
-                    <label class="text-[10px] font-black text-gray-500 uppercase ml-2 tracking-widest">Shortener API (use {{url}})</label>
+        <form method="POST" class="max-w-4xl mx-auto glass p-12 rounded-[3.5rem] space-y-10 border border-white/5 shadow-2xl">
+            <h2 class="text-3xl font-black italic text-blue-500 uppercase tracking-tighter">Global Site Settings</h2>
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="md:col-span-2">
+                    <label class="text-[10px] font-black text-gray-500 uppercase ml-2 tracking-widest">Link Shortener API (use {{url}})</label>
                     <input name="api" value="{{{{ cfg.api if cfg else '' }}}}" placeholder="https://api.com/st?api=KEY&url={{url}}" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 mt-2 outline-none">
                 </div>
                 <div>
-                    <label class="text-[10px] font-black text-gray-500 uppercase ml-2 tracking-widest">Home Page Movie Limit</label>
+                    <label class="text-[10px] font-black text-gray-500 uppercase ml-2 tracking-widest">Home Limit</label>
                     <input name="limit" type="number" value="{{{{ cfg.limit if cfg else 15 }}}}" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 mt-2 outline-none">
+                </div>
+                <div class="md:col-span-3">
+                    <label class="text-[10px] font-black text-gray-500 uppercase ml-2 tracking-widest">Slider Limit (Movies to show)</label>
+                    <input name="slider_limit" type="number" value="{{{{ cfg.slider_limit if cfg else 5 }}}}" class="w-full bg-black/40 p-4 rounded-2xl border border-gray-800 mt-2 outline-none">
                 </div>
             </div>
             <div class="grid md:grid-cols-2 gap-8">
                 <div class="col-span-2 md:col-span-1">
-                    <label class="text-[10px] font-black text-yellow-500 uppercase ml-2 tracking-widest italic">Header Ad Code (HTML/JS)</label>
-                    <textarea name="top" class="w-full bg-black/40 p-4 rounded-2xl h-40 border border-gray-800 mt-2 text-[10px] font-mono leading-relaxed">{{{{ ads.top if ads else '' }}}}</textarea>
+                    <label class="text-[10px] font-black text-yellow-500 uppercase ml-2 italic">Top Banner Ad (HTML)</label>
+                    <textarea name="top" class="w-full bg-black/40 p-5 rounded-2xl h-40 border border-gray-800 mt-2 text-[10px] font-mono">{{{{ ads.top if ads else '' }}}}</textarea>
                 </div>
                 <div class="col-span-2 md:col-span-1">
-                    <label class="text-[10px] font-black text-yellow-500 uppercase ml-2 tracking-widest italic">Footer Ad Code (HTML/JS)</label>
-                    <textarea name="bottom" class="w-full bg-black/40 p-4 rounded-2xl h-40 border border-gray-800 mt-2 text-[10px] font-mono leading-relaxed">{{{{ ads.bottom if ads else '' }}}}</textarea>
+                    <label class="text-[10px] font-black text-yellow-500 uppercase ml-2 italic">Bottom Banner Ad (HTML)</label>
+                    <textarea name="bottom" class="w-full bg-black/40 p-5 rounded-2xl h-40 border border-gray-800 mt-2 text-[10px] font-mono">{{{{ ads.bottom if ads else '' }}}}</textarea>
                 </div>
                 <div class="col-span-2">
-                    <label class="text-[10px] font-black text-red-500 uppercase ml-2 tracking-widest italic">Popup / Overlay / Tracking Code</label>
-                    <textarea name="popup" class="w-full bg-black/40 p-4 rounded-2xl h-32 border border-gray-800 mt-2 text-[10px] font-mono leading-relaxed">{{{{ ads.popup if ads else '' }}}}</textarea>
+                    <label class="text-[10px] font-black text-red-500 uppercase ml-2 italic">Popup / Overlay Scripts</label>
+                    <textarea name="popup" class="w-full bg-black/40 p-5 rounded-2xl h-32 border border-gray-800 mt-2 text-[10px] font-mono">{{{{ ads.popup if ads else '' }}}}</textarea>
                 </div>
             </div>
-            <button class="w-full bg-blue-600 p-5 rounded-2xl font-black shadow-2xl shadow-blue-600/20 uppercase tracking-widest">UPDATE SETTINGS</button>
+            <button class="w-full bg-blue-600 p-6 rounded-3xl font-black shadow-2xl shadow-blue-600/30 uppercase tracking-widest transition hover:scale-105">UPDATE SITE CONFIG</button>
         </form>
     </body>
     </html>
