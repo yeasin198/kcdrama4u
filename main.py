@@ -25,6 +25,7 @@ try:
     ads_col = db['ads']
     settings_col = db['settings']
     categories_col = db['categories']
+    badges_col = db['badges'] # New Collection for Poster Badges
     media_col = db['media']
     
 except Exception as e:
@@ -100,7 +101,7 @@ BASE_CSS = """
     body { top: 0px !important; }
 
     /* AD SLOT WRAPPER */
-    .ad-wrapper { display: flex; justify-content: center; align-items: center; margin: 20px 0; overflow: hidden; }
+    .ad-slot-wrapper { display: flex; justify-content: center; align-items: center; margin: 25px 0; overflow: hidden; width: 100%; }
 </style>
 """
 
@@ -111,11 +112,8 @@ BASE_LAYOUT = """
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ site.name }} - {{ site.title }}</title>
     """ + BASE_CSS + """
-    
-    {# Global Ads: Popunder / Social Bar (Head) #}
-    {{ ads['Popunder'] | safe if ads and 'Popunder' in ads }}
-    {{ ads['SocialBar'] | safe if ads and 'SocialBar' in ads }}
-
+    {# Global Header Ads Script (Like AdSense Auto Ads) #}
+    {{ ads['GlobalHeader'] | safe if ads and 'GlobalHeader' in ads }}
 </head>
 <body id="pageBody">
     {% if not is_admin_route %}
@@ -144,9 +142,9 @@ BASE_LAYOUT = """
         </div>
     </nav>
     
-    {# Banner 728x90 or 320x50 (Top) #}
-    <div class="ad-wrapper">
-        {{ ads['TopBanner'] | safe if ads and 'TopBanner' in ads }}
+    {# Top Banner Ad Slot #}
+    <div class="ad-slot-wrapper">
+        {{ ads['TopBanner_728x90'] | safe if ads and 'TopBanner_728x90' in ads }}
     </div>
     {% endif %}
 
@@ -163,6 +161,7 @@ BASE_LAYOUT = """
             <div class="space-y-2 flex-1 overflow-y-auto pr-2">
                 <a href="/admin/dashboard" class="sidebar-link {% if active == 'dashboard' %}sidebar-active{% endif %}"><i class="fas fa-chart-line"></i> Dashboard</a>
                 <a href="/admin/categories" class="sidebar-link {% if active == 'categories' %}sidebar-active{% endif %}"><i class="fas fa-tags"></i> Categories</a>
+                <a href="/admin/badges" class="sidebar-link {% if active == 'badges' %}sidebar-active{% endif %}"><i class="fas fa-certificate"></i> Poster Badges</a>
                 <a href="/admin/apps" class="sidebar-link {% if active == 'apps' %}sidebar-active{% endif %}"><i class="fas fa-rocket"></i> Apps Manager</a>
                 <a href="/admin/media" class="sidebar-link {% if active == 'media' %}sidebar-active{% endif %}"><i class="fas fa-photo-video"></i> Media Center</a>
                 <a href="/admin/ads" class="sidebar-link {% if active == 'ads' %}sidebar-active{% endif %}"><i class="fas fa-ad"></i> Ads Manager</a>
@@ -191,10 +190,9 @@ BASE_LAYOUT = """
     </div>
 
     {% if not is_admin_route %}
-    
-    {# Banner 468x60 (Bottom) #}
-    <div class="ad-wrapper">
-        {{ ads['BottomBanner'] | safe if ads and 'BottomBanner' in ads }}
+    {# Bottom Banner Ad Slot #}
+    <div class="ad-slot-wrapper">
+        {{ ads['BottomBanner_468x60'] | safe if ads and 'BottomBanner_468x60' in ads }}
     </div>
 
     <footer class="bg-slate-950 text-slate-500 py-20 mt-20">
@@ -319,9 +317,9 @@ def home():
             <a href="/category/{{ section.cat_name }}" class="text-indigo-600 font-black text-xs uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/30 px-6 py-2 rounded-full">View All</a>
         </div>
         
-        {# Native Banner / Ads between sections #}
-        <div class="ad-wrapper">
-            {{ ads['NativeBanner'] | safe if ads and 'NativeBanner' in ads }}
+        {# In-Feed / Native Ad Between Category Rows #}
+        <div class="ad-slot-wrapper">
+            {{ ads['InFeed_Native'] | safe if ads and 'InFeed_Native' in ads }}
         </div>
 
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-8">
@@ -354,9 +352,9 @@ def details(id):
             <h1 class="text-5xl lg:text-7xl font-black mb-8 uppercase italic tracking-tighter text-title">{{app.name}}</h1>
             <p class="text-slate-500 dark:text-slate-400 text-2xl mb-12 font-medium leading-relaxed">"{{app.info}}"</p>
             
-            {# Banner 300x250 (App Page) #}
-            <div class="ad-wrapper !justify-start">
-                {{ ads['DetailsBanner'] | safe if ads and 'DetailsBanner' in ads }}
+            {# Rectangular Ad Slot in Details Page #}
+            <div class="ad-slot-wrapper !justify-start mb-8">
+                {{ ads['Details_300x250'] | safe if ads and 'Details_300x250' in ads }}
             </div>
 
             <div class="flex flex-wrap justify-center lg:justify-start gap-5 mb-12">
@@ -463,13 +461,56 @@ def admin_categories():
     """
     return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, cats=cats, is_admin_route=True, ads={}, active="categories")
 
-# --- ADMIN: APPS MANAGER (SEARCH & BADGE INCLUDED) ---
+# --- ADMIN: POSTER BADGES ---
+
+@app.route('/admin/badges', methods=['GET', 'POST'])
+def admin_badges():
+    if not session.get('logged_in'): return redirect('/admin-gate')
+    if request.method == 'POST':
+        name = request.form.get('name')
+        badges_col.update_one({"name": name}, {"$set": {"name": name}}, upsert=True)
+        flash("Badge saved successfully.")
+        return redirect('/admin/badges')
+    
+    badges = list(badges_col.find().sort('name', 1))
+    site = get_site_info()
+    content = """
+    <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">Poster Badge Manager</h1>
+    <div class="grid lg:grid-cols-12 gap-12">
+        <form method="POST" class="lg:col-span-4 bg-slate-50 p-10 rounded-[3rem] border-2 border-dashed border-slate-200 h-fit space-y-5">
+            <h2 class="font-black text-indigo-600 uppercase italic">Add New Badge</h2>
+            <input name="name" placeholder="Badge Name (MOD, PREMIUM, NEW)" required>
+            <button class="btn-main w-full py-5 text-lg">SAVE BADGE</button>
+        </form>
+        <div class="lg:col-span-8 bg-white border-2 rounded-[3rem] overflow-hidden shadow-xl">
+            <table class="w-full text-left">
+                <thead class="bg-slate-950 text-white text-[11px] uppercase font-bold tracking-widest">
+                    <tr><th class="p-6">Badge Text</th><th class="p-6 text-right">Actions</th></tr>
+                </thead>
+                <tbody class="text-sm font-bold">
+                    {% for b in badges %}
+                    <tr class="border-t hover:bg-slate-50 transition">
+                        <td class="p-6 text-slate-800 font-black uppercase italic">{{ b.name }}</td>
+                        <td class="p-6 text-right">
+                            <a href="/admin/del-badge/{{ b._id }}" class="text-red-500 hover:underline" onclick="return confirm('Delete badge?')">DELETE</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, badges=badges, is_admin_route=True, ads={}, active="badges")
+
+# --- ADMIN: APPS MANAGER (SEARCH & BADGE SELECTION INCLUDED) ---
 
 @app.route('/admin/apps', methods=['GET', 'POST'])
 def admin_apps():
     if not session.get('logged_in'): return redirect('/admin-gate')
     site = get_site_info()
     cats = list(categories_col.find().sort('name', 1))
+    all_badges = list(badges_col.find().sort('name', 1))
     
     admin_q = request.args.get('admin_q', '')
     query = {}
@@ -495,7 +536,12 @@ def admin_apps():
             <h2 class="font-black text-indigo-600 uppercase italic">Publish New App</h2>
             <input name="name" placeholder="Application Title" required>
             <input name="logo" placeholder="Logo Link" required>
-            <input name="badge" placeholder="Badge (MOD, PREMIUM, NEW)">
+            <select name="badge">
+                <option value="">Select Poster Badge (Optional)</option>
+                {% for b in all_badges %}
+                <option value="{{ b.name }}">{{ b.name }}</option>
+                {% endfor %}
+            </select>
             <select name="category" required>
                 <option value="" disabled selected>Select Category</option>
                 {% for c in cats %}<option value="{{c.name}}">{{c.name}}</option>{% endfor %}
@@ -536,7 +582,7 @@ def admin_apps():
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, all_apps=all_apps, cats=cats, admin_q=admin_q, is_admin_route=True, ads={}, active="apps")
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, all_apps=all_apps, cats=cats, all_badges=all_badges, admin_q=admin_q, is_admin_route=True, ads={}, active="apps")
 
 @app.route('/admin/edit-app/<id>', methods=['GET', 'POST'])
 def edit_app(id):
@@ -544,6 +590,7 @@ def edit_app(id):
     app_data = apps_col.find_one({"_id": ObjectId(id)})
     site = get_site_info()
     cats = list(categories_col.find().sort('name', 1))
+    all_badges = list(badges_col.find().sort('name', 1))
     
     if request.method == 'POST':
         apps_col.update_one({"_id": ObjectId(id)}, {"$set": {
@@ -561,7 +608,12 @@ def edit_app(id):
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <input name="name" value="{{app_data.name}}" required>
             <input name="logo" value="{{app_data.logo}}" required>
-            <input name="badge" value="{{app_data.badge if app_data.badge }}" placeholder="Badge">
+            <select name="badge">
+                <option value="">Select Poster Badge (Optional)</option>
+                {% for b in all_badges %}
+                <option value="{{ b.name }}" {% if b.name == app_data.badge %}selected{% endif %}>{{ b.name }}</option>
+                {% endfor %}
+            </select>
             <select name="category" required>
                 {% for c in cats %}<option value="{{c.name}}" {% if c.name == app_data.category %}selected{% endif %}>{{c.name}}</option>{% endfor %}
             </select>
@@ -575,7 +627,7 @@ def edit_app(id):
         </div>
     </form>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, app_data=app_data, cats=cats, is_admin_route=True, ads={}, active="apps")
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, app_data=app_data, cats=cats, all_badges=all_badges, is_admin_route=True, ads={}, active="apps")
 
 # --- ADMIN: MEDIA ---
 
@@ -625,27 +677,35 @@ def admin_media():
 def admin_ads():
     if not session.get('logged_in'): return redirect('/admin-gate')
     if request.method == 'POST':
-        ads_col.insert_one({"name": request.form.get('name'), "code": request.form.get('code'), "created_at": datetime.now()})
+        ads_col.update_one(
+            {"name": request.form.get('name')},
+            {"$set": {"name": request.form.get('name'), "code": request.form.get('code'), "created_at": datetime.now()}},
+            upsert=True
+        )
         flash("Advertisement integrated successfully.")
         return redirect('/admin/ads')
     ads_list = list(ads_col.find())
     site = get_site_info()
     content = """
-    <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">Ads Placement</h1>
-    <div class="bg-indigo-50 border border-indigo-100 p-6 rounded-3xl mb-10">
-        <h4 class="font-black text-indigo-600 uppercase text-xs mb-3 italic">Use these specific names for automatic injection:</h4>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-            <span>Popunder</span> <span>SocialBar</span> <span>TopBanner</span>
-            <span>BottomBanner</span> <span>NativeBanner</span> <span>DetailsBanner</span>
-        </div>
-    </div>
+    <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">Google Ads & Global Manager</h1>
     <div class="grid lg:grid-cols-2 gap-12">
         <form method="POST" class="bg-slate-50 p-10 rounded-[3rem] border-2 border-slate-200 space-y-5">
-            <input name="name" placeholder="Ad Spot Name (e.g. TopBanner)" required>
-            <textarea name="code" placeholder="Paste Ad HTML/JS Code Here" class="h-64 font-mono text-sm" required></textarea>
+            <h2 class="font-black text-indigo-600 uppercase italic">Integrate New Ad Code</h2>
+            <select name="name" required>
+                <option value="" disabled selected>Select Ad Placement</option>
+                <option value="GlobalHeader">Global Head Script (Auto Ads / Google Tag)</option>
+                <option value="TopBanner_728x90">Top Banner (728x90 / 320x50)</option>
+                <option value="BottomBanner_468x60">Bottom Banner (468x60 / 320x50)</option>
+                <option value="Details_300x250">Details Page Rectangle (300x250)</option>
+                <option value="InFeed_Native">Home Feed Native (In-between Rows)</option>
+                <option value="Popunder">Popunder Script</option>
+                <option value="SocialBar">Social Bar / Floater</option>
+            </select>
+            <textarea name="code" placeholder="Paste Ad HTML/JS Code Here (Google Adsense, Propeller, etc.)" class="h-64 font-mono text-sm" required></textarea>
             <button class="btn-main w-full py-5">DEPLOY AD CODE</button>
         </form>
         <div class="space-y-6">
+            <h2 class="font-black text-slate-700 uppercase italic">Active Ad Placements</h2>
             {% for ad in ads_list %}
             <div class="bg-white border-2 p-8 rounded-[2.5rem] flex justify-between items-center shadow-lg">
                 <span class="font-black uppercase text-sm italic tracking-widest text-slate-700">{{ ad.name }}</span>
@@ -779,6 +839,11 @@ def download_process(id):
 def delete_cat(id):
     if not session.get('logged_in'): return redirect('/admin-gate')
     categories_col.delete_one({"_id": ObjectId(id)}); return redirect('/admin/categories')
+
+@app.route('/admin/del-badge/<id>')
+def delete_badge(id):
+    if not session.get('logged_in'): return redirect('/admin-gate')
+    badges_col.delete_one({"_id": ObjectId(id)}); return redirect('/admin/badges')
 
 @app.route('/admin/del-media/<id>')
 def delete_media(id):
