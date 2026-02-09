@@ -1,7 +1,3 @@
-dnspython
-requests
-pymongo
-flask
 flask
 pymongo
 dnspython
