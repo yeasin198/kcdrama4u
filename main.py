@@ -14,15 +14,26 @@ app.secret_key = os.environ.get("SESSION_SECRET", "super_high_secure_long_secret
 RECOVERY_KEY = os.environ.get("RECOVERY_KEY", "admin@2024")
 
 # --- MONGODB CONNECTION ---
+import certifi
+
+# --- MONGODB CONNECTION ---
 try:
-    # আপনার দেওয়া MongoDB কানেকশন লিঙ্ক
+    # ca_file যুক্ত করা হয়েছে SSL ত্রুটি এড়াতে
+    ca = certifi.where()
     MONGO_URI = "mongodb+srv://Demo270:Demo270@cluster0.ls1igsg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    
+    # client টি গ্লোবাল রাখা হয়েছে কিন্তু কানেকশন চেক করার জন্য tlsCAFile ব্যবহার করা হয়েছে
+    client = MongoClient(MONGO_URI, tlsCAFile=ca, serverSelectionTimeoutMS=5000)
     db = client['app_hub_production_ultimate_system']
+    
     apps_col = db['apps']
     users_col = db['users']
     ads_col = db['ads']
     settings_col = db['settings']
+    
+    # কানেকশন চেক করা (এটি অপশনাল কিন্তু ইরর বুঝতে সাহায্য করবে)
+    client.admin.command('ping')
+    print("MongoDB Connected Successfully!")
 except Exception as e:
     print(f"DATABASE CONNECTION ERROR: {e}")
 
