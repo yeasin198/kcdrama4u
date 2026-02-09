@@ -52,13 +52,13 @@ def get_legal_content(page_type):
     if not content: return f"The {page_type} content is not set yet. Please update from admin panel."
     return content['text']
 
-# --- NEW HELPER FOR ADS ---
-def get_all_ads():
+# --- NEW HELPER: FETCH ALL ADS ---
+def get_ads():
     all_ads = list(ads_col.find())
-    ad_dict = {}
+    ad_map = {}
     for ad in all_ads:
-        ad_dict[ad['name']] = ad['code']
-    return ad_dict
+        ad_map[ad['name']] = ad['code']
+    return ad_map
 
 # --- UI ASSETS (CSS & SCRIPTS) ---
 BASE_CSS = """
@@ -77,6 +77,7 @@ BASE_CSS = """
     .pro-card { background: var(--card); border: 1px solid var(--border); border-radius: 2rem; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden; }
     .pro-card:hover { transform: translateY(-8px); box-shadow: 0 25px 50px -12px rgba(99, 102, 241, 0.2); border-color: #6366f1; }
     
+    /* POSTER BADGE */
     .app-badge { position: absolute; top: 12px; right: 12px; background: #6366f1; color: white !important; padding: 4px 12px; border-radius: 8px; font-size: 10px; font-weight: 800; z-index: 10; text-transform: uppercase; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
 
     .sidebar-link { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-radius: 18px; font-weight: 600; color: #94a3b8; transition: 0.3s; }
@@ -93,12 +94,13 @@ BASE_CSS = """
     .text-title { color: var(--title); }
     .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
     
+    /* Translator Styles Hidden */
     #google_translate_element { display: none; }
     .goog-te-banner-frame.skiptranslate { display: none !important; }
     body { top: 0px !important; }
 
-    /* Ad Containers Styling */
-    .ad-slot { text-align: center; margin: 20px auto; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+    /* AD SLOT WRAPPER */
+    .ad-wrapper { display: flex; justify-content: center; align-items: center; margin: 20px 0; overflow: hidden; }
 </style>
 """
 
@@ -109,9 +111,11 @@ BASE_LAYOUT = """
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ site.name }} - {{ site.title }}</title>
     """ + BASE_CSS + """
-    {# পপআন্ডার বা সোশ্যাল বার এখানে লোড হবে যদি নাম Popunder বা SocialBar হয় #}
+    
+    {# Global Ads: Popunder / Social Bar (Head) #}
     {{ ads['Popunder'] | safe if ads and 'Popunder' in ads }}
     {{ ads['SocialBar'] | safe if ads and 'SocialBar' in ads }}
+
 </head>
 <body id="pageBody">
     {% if not is_admin_route %}
@@ -140,8 +144,8 @@ BASE_LAYOUT = """
         </div>
     </nav>
     
-    {# Top Banner Ad Spot #}
-    <div class="ad-slot container mx-auto px-6 mt-4">
+    {# Banner 728x90 or 320x50 (Top) #}
+    <div class="ad-wrapper">
         {{ ads['TopBanner'] | safe if ads and 'TopBanner' in ads }}
     </div>
     {% endif %}
@@ -187,8 +191,9 @@ BASE_LAYOUT = """
     </div>
 
     {% if not is_admin_route %}
-    {# Bottom Banner Ad Spot #}
-    <div class="ad-slot container mx-auto px-6 mb-10">
+    
+    {# Banner 468x60 (Bottom) #}
+    <div class="ad-wrapper">
         {{ ads['BottomBanner'] | safe if ads and 'BottomBanner' in ads }}
     </div>
 
@@ -270,7 +275,7 @@ BASE_LAYOUT = """
 @app.route('/')
 def home():
     site = get_site_info()
-    ads = get_all_ads()
+    ads = get_ads()
     q = request.args.get('q', '')
     all_media = list(media_col.find().sort('_id', -1))
     all_categories = list(categories_col.find().sort('name', 1))
@@ -314,6 +319,11 @@ def home():
             <a href="/category/{{ section.cat_name }}" class="text-indigo-600 font-black text-xs uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/30 px-6 py-2 rounded-full">View All</a>
         </div>
         
+        {# Native Banner / Ads between sections #}
+        <div class="ad-wrapper">
+            {{ ads['NativeBanner'] | safe if ads and 'NativeBanner' in ads }}
+        </div>
+
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-8">
             {% for app in section.apps %}
             <a href="/app/{{app._id}}" class="pro-card p-6 flex flex-col items-center text-center group">
@@ -326,20 +336,15 @@ def home():
             </a>
             {% endfor %}
         </div>
-        
-        {# মিডল অ্যাড - প্রতি ক্যাটাগরির নিচে #}
-        <div class="ad-slot mt-10">
-            {{ ads['InFeedBanner'] | safe if ads and 'InFeedBanner' in ads }}
-        </div>
     </div>
     {% endfor %}
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', content), site=site, home_data=home_data, all_media=all_media, q=q, is_admin_route=False, ads=ads)
+    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', content), site=site, home_data=home_data, all_media=all_media, q=q, ads=ads, is_admin_route=False)
 
 @app.route('/app/<id>')
 def details(id):
     site = get_site_info()
-    ads = get_all_ads()
+    ads = get_ads()
     app_data = apps_col.find_one({"_id": ObjectId(id)})
     if not app_data: return redirect('/')
     content = """
@@ -349,8 +354,8 @@ def details(id):
             <h1 class="text-5xl lg:text-7xl font-black mb-8 uppercase italic tracking-tighter text-title">{{app.name}}</h1>
             <p class="text-slate-500 dark:text-slate-400 text-2xl mb-12 font-medium leading-relaxed">"{{app.info}}"</p>
             
-            {# ডিটেইলস পেজ অ্যাড (৩০০x২৫০) #}
-            <div class="ad-slot mb-8">
+            {# Banner 300x250 (App Page) #}
+            <div class="ad-wrapper !justify-start">
                 {{ ads['DetailsBanner'] | safe if ads and 'DetailsBanner' in ads }}
             </div>
 
@@ -362,12 +367,12 @@ def details(id):
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', content), site=site, app=app_data, is_admin_route=False, ads=ads)
+    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', content), site=site, app=app_data, ads=ads, is_admin_route=False)
 
 @app.route('/p/<slug>')
 def legal_pages(slug):
     site = get_site_info()
-    ads = get_all_ads()
+    ads = get_ads()
     if slug not in ["privacy", "terms", "dmca"]: return redirect('/')
     content = get_legal_content(slug)
     page_html = f"""
@@ -376,9 +381,9 @@ def legal_pages(slug):
         <div class="text-slate-600 dark:text-slate-400 text-xl leading-loose whitespace-pre-line font-medium">{content}</div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', page_html), site=site, is_admin_route=False, ads=ads)
+    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', page_html), site=site, ads=ads, is_admin_route=False)
 
-# --- ADMIN ROUTES (DASHBOARD, CATEGORIES, APPS, ETC - REMAINS SAME) ---
+# --- ADMIN: DASHBOARD ---
 
 @app.route('/admin/dashboard')
 def admin_dashboard():
@@ -411,7 +416,9 @@ def admin_dashboard():
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, stats=stats, is_admin_route=True, active="dashboard", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, stats=stats, is_admin_route=True, ads={}, active="dashboard")
+
+# --- ADMIN: CATEGORIES ---
 
 @app.route('/admin/categories', methods=['GET', 'POST'])
 def admin_categories():
@@ -422,6 +429,7 @@ def admin_categories():
         categories_col.update_one({"name": name}, {"$set": {"name": name, "limit": int(limit)}}, upsert=True)
         flash(f"Category updated.")
         return redirect('/admin/categories')
+    
     cats = list(categories_col.find().sort('name', 1))
     site = get_site_info()
     content = """
@@ -453,16 +461,20 @@ def admin_categories():
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, cats=cats, is_admin_route=True, active="categories", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, cats=cats, is_admin_route=True, ads={}, active="categories")
+
+# --- ADMIN: APPS MANAGER (SEARCH & BADGE INCLUDED) ---
 
 @app.route('/admin/apps', methods=['GET', 'POST'])
 def admin_apps():
     if not session.get('logged_in'): return redirect('/admin-gate')
     site = get_site_info()
     cats = list(categories_col.find().sort('name', 1))
+    
     admin_q = request.args.get('admin_q', '')
     query = {}
-    if admin_q: query["name"] = {"$regex": admin_q, "$options": "i"}
+    if admin_q:
+        query["name"] = {"$regex": admin_q, "$options": "i"}
 
     if request.method == 'POST':
         apps_col.insert_one({
@@ -493,6 +505,7 @@ def admin_apps():
             <input name="download_link" placeholder="Download URL" required>
             <button class="btn-main w-full py-5 text-lg">PUBLISH APP</button>
         </form>
+        
         <div class="lg:col-span-8 space-y-6">
             <form action="/admin/apps" method="GET" class="flex bg-slate-100 rounded-3xl px-6 py-2 border border-slate-200 shadow-inner">
                 <input type="text" name="admin_q" placeholder="Search Apps by Name..." class="bg-transparent border-none p-0 w-full text-sm font-semibold outline-none" value="{{ admin_q }}">
@@ -523,7 +536,7 @@ def admin_apps():
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, all_apps=all_apps, cats=cats, admin_q=admin_q, is_admin_route=True, active="apps", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, all_apps=all_apps, cats=cats, admin_q=admin_q, is_admin_route=True, ads={}, active="apps")
 
 @app.route('/admin/edit-app/<id>', methods=['GET', 'POST'])
 def edit_app(id):
@@ -531,6 +544,7 @@ def edit_app(id):
     app_data = apps_col.find_one({"_id": ObjectId(id)})
     site = get_site_info()
     cats = list(categories_col.find().sort('name', 1))
+    
     if request.method == 'POST':
         apps_col.update_one({"_id": ObjectId(id)}, {"$set": {
             "name": request.form.get('name'), "logo": request.form.get('logo'),
@@ -540,6 +554,7 @@ def edit_app(id):
         }})
         flash("Application data updated.")
         return redirect('/admin/apps')
+        
     content = """
     <h1 class="text-4xl font-black mb-10 uppercase italic">Edit: {{app_data.name}}</h1>
     <form method="POST" class="max-w-3xl bg-white p-10 rounded-[3rem] border-2 shadow-2xl space-y-6">
@@ -560,15 +575,21 @@ def edit_app(id):
         </div>
     </form>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, app_data=app_data, cats=cats, is_admin_route=True, active="apps", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, app_data=app_data, cats=cats, is_admin_route=True, ads={}, active="apps")
+
+# --- ADMIN: MEDIA ---
 
 @app.route('/admin/media', methods=['GET', 'POST'])
 def admin_media():
     if not session.get('logged_in'): return redirect('/admin-gate')
     if request.method == 'POST':
-        media_col.insert_one({"title": request.form.get('title'), "url": request.form.get('url'), "link": request.form.get('link'), "created_at": datetime.now()})
-        flash("Media banner added.")
+        media_col.insert_one({
+            "title": request.form.get('title'), "url": request.form.get('url'),
+            "link": request.form.get('link'), "created_at": datetime.now()
+        })
+        flash("Media banner has been added.")
         return redirect('/admin/media')
+    
     media_list = list(media_col.find().sort('_id', -1))
     site = get_site_info()
     content = """
@@ -584,29 +605,39 @@ def admin_media():
         <div class="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-8">
             {% for m in media_list %}
             <div class="bg-white border-2 rounded-[2.5rem] overflow-hidden shadow-xl flex flex-col group">
-                <div class="relative overflow-hidden h-48"><img src="{{ m.url }}" class="w-full h-full object-cover group-hover:scale-110 transition duration-700"></div>
-                <div class="p-6"><h3 class="font-black uppercase text-sm truncate mb-1 italic">{{ m.title }}</h3><a href="/admin/del-media/{{ m._id }}" class="text-red-500 font-black text-xs hover:underline" onclick="return confirm('Remove?')">REMOVE</a></div>
+                <div class="relative overflow-hidden h-48">
+                    <img src="{{ m.url }}" class="w-full h-full object-cover group-hover:scale-110 transition duration-700">
+                </div>
+                <div class="p-6">
+                    <h3 class="font-black uppercase text-sm truncate mb-1 italic">{{ m.title }}</h3>
+                    <a href="/admin/del-media/{{ m._id }}" class="text-red-500 font-black text-xs hover:underline" onclick="return confirm('Remove media?')">REMOVE FROM SLIDER</a>
+                </div>
             </div>
             {% endfor %}
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, media_list=media_list, is_admin_route=True, active="media", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, media_list=media_list, is_admin_route=True, ads={}, active="media")
+
+# --- ADMIN: ADS & LAYOUT ---
 
 @app.route('/admin/ads', methods=['GET', 'POST'])
 def admin_ads():
     if not session.get('logged_in'): return redirect('/admin-gate')
     if request.method == 'POST':
         ads_col.insert_one({"name": request.form.get('name'), "code": request.form.get('code'), "created_at": datetime.now()})
-        flash("Ad integrated.")
+        flash("Advertisement integrated successfully.")
         return redirect('/admin/ads')
     ads_list = list(ads_col.find())
     site = get_site_info()
     content = """
     <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">Ads Placement</h1>
-    <div class="bg-blue-50 p-6 rounded-3xl mb-10 border border-blue-200">
-        <h3 class="font-black text-blue-800 text-sm uppercase mb-2">Available Spot Names (Case Sensitive):</h3>
-        <p class="text-xs font-bold text-blue-600">Popunder, SocialBar, TopBanner, BottomBanner, DetailsBanner, InFeedBanner</p>
+    <div class="bg-indigo-50 border border-indigo-100 p-6 rounded-3xl mb-10">
+        <h4 class="font-black text-indigo-600 uppercase text-xs mb-3 italic">Use these specific names for automatic injection:</h4>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            <span>Popunder</span> <span>SocialBar</span> <span>TopBanner</span>
+            <span>BottomBanner</span> <span>NativeBanner</span> <span>DetailsBanner</span>
+        </div>
     </div>
     <div class="grid lg:grid-cols-2 gap-12">
         <form method="POST" class="bg-slate-50 p-10 rounded-[3rem] border-2 border-slate-200 space-y-5">
@@ -618,13 +649,13 @@ def admin_ads():
             {% for ad in ads_list %}
             <div class="bg-white border-2 p-8 rounded-[2.5rem] flex justify-between items-center shadow-lg">
                 <span class="font-black uppercase text-sm italic tracking-widest text-slate-700">{{ ad.name }}</span>
-                <a href="/del/ad/{{ ad._id }}" class="text-red-500 font-black text-xs">REMOVE</a>
+                <a href="/del/ad/{{ ad._id }}" class="text-red-500 font-black text-xs">REMOVE CODE</a>
             </div>
             {% endfor %}
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, ads_list=ads_list, is_admin_route=True, active="ads", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, ads_list=ads_list, is_admin_route=True, ads={}, active="ads")
 
 @app.route('/admin/layout', methods=['GET', 'POST'])
 def admin_layout():
@@ -640,48 +671,69 @@ def admin_layout():
             }}, upsert=True)
         elif l_type == 'legal':
             settings_col.update_one({"type": "legal_page", "page": request.form.get('page')}, {"$set": {"text": request.form.get('text')}}, upsert=True)
-        flash("Saved.")
+        flash("Layout and branding settings saved.")
         return redirect('/admin/layout')
+    
     content = """
-    <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">Customization</h1>
+    <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">Site Customization</h1>
     <div class="grid lg:grid-cols-2 gap-12">
-        <form method="POST" class="bg-white p-10 rounded-[3rem] border-2 shadow-xl space-y-5">
+        <form method="POST" class="bg-white p-10 rounded-[3rem] border-2 shadow-xl space-y-5 h-fit">
             <input type="hidden" name="l_type" value="branding">
-            <div class="grid grid-cols-2 gap-4"><input name="name" value="{{site.name}}"><input name="logo" value="{{site.logo}}"></div>
-            <input name="title" value="{{site.title}}"><textarea name="desc">{{site.desc}}</textarea>
-            <input name="copyright" value="{{site.copyright}}">
-            <div class="grid grid-cols-2 gap-4"><input name="fb" value="{{site.fb}}"><input name="ig" value="{{site.ig}}"></div>
-            <button class="btn-main w-full py-5">SAVE BRANDING</button>
+            <h2 class="font-black uppercase italic text-indigo-600 border-b pb-4">Branding & Socials</h2>
+            <div class="grid grid-cols-2 gap-4">
+                <input name="name" value="{{site.name}}" placeholder="Site Name">
+                <input name="logo" value="{{site.logo}}" placeholder="Logo URL">
+            </div>
+            <input name="title" value="{{site.title}}" placeholder="Browser Tab Title">
+            <textarea name="desc" class="h-24">{{site.desc}}</textarea>
+            <input name="copyright" value="{{site.copyright}}" placeholder="Copyright Text">
+            <div class="grid grid-cols-2 gap-4">
+                <input name="fb" value="{{site.fb}}" placeholder="Facebook Link">
+                <input name="ig" value="{{site.ig}}" placeholder="Instagram Link">
+            </div>
+            <button class="btn-main w-full py-5">SAVE ALL BRANDING</button>
         </form>
-        <form method="POST" class="bg-slate-50 p-10 rounded-[3rem] border-2 border-dashed space-y-5">
+        <form method="POST" class="bg-slate-50 p-10 rounded-[3rem] border-2 border-dashed border-slate-200 space-y-5 h-fit">
             <input type="hidden" name="l_type" value="legal">
-            <select name="page" required><option value="privacy">Privacy</option><option value="terms">Terms</option><option value="dmca">DMCA</option></select>
-            <textarea name="text" class="h-80"></textarea><button class="btn-main w-full py-5 bg-emerald-600">UPDATE LEGAL</button>
+            <h2 class="font-black uppercase italic text-emerald-600 border-b pb-4">Legal Page Editor</h2>
+            <select name="page" required>
+                <option value="privacy">Privacy Policy</option>
+                <option value="terms">Terms of Service</option>
+                <option value="dmca">DMCA Takedown</option>
+            </select>
+            <textarea name="text" placeholder="Paste policy text here..." class="h-80 font-medium"></textarea>
+            <button class="btn-main w-full py-5 bg-emerald-600">UPDATE LEGAL CONTENT</button>
         </form>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, is_admin_route=True, active="layout", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, is_admin_route=True, ads={}, active="layout")
+
+# --- ADMIN: SETTINGS ---
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
 def admin_settings():
     if not session.get('logged_in'): return redirect('/admin-gate')
     if request.method == 'POST':
         settings_col.update_one({"type": "shortener"}, {"$set": {"url": request.form.get('url'), "api": request.form.get('api')}}, upsert=True)
-        flash("Saved.")
+        flash("API Configuration Saved.")
         return redirect('/admin/settings')
+    
     cfg = get_shortener()
     site = get_site_info()
     content = """
-    <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">System API</h1>
-    <form method="POST" class="bg-slate-950 p-16 rounded-[4rem] space-y-8">
-        <input name="url" value="{{cfg.url}}" class="bg-slate-900 border-none text-white py-6 text-xl">
-        <input name="api" value="{{cfg.api}}" class="bg-slate-900 border-none text-white py-6 text-xl">
-        <button class="bg-emerald-500 text-black w-full py-6 rounded-[2rem] font-black">UPDATE API</button>
-    </form>
+    <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">System API Settings</h1>
+    <div class="bg-slate-950 p-16 rounded-[4rem] shadow-2xl border-4 border-slate-900">
+        <h2 class="text-emerald-400 font-black uppercase mb-8 italic tracking-widest text-sm">Universal Link Shortener (API)</h2>
+        <form method="POST" class="space-y-8">
+            <input name="url" value="{{cfg.url}}" placeholder="Domain" class="bg-slate-900 border-none text-white font-bold py-6 text-xl">
+            <input name="api" value="{{cfg.api}}" placeholder="API Token" class="bg-slate-900 border-none text-white font-bold py-6 text-xl">
+            <button class="bg-emerald-500 text-black w-full py-6 rounded-[2rem] font-black text-2xl">UPDATE GLOBAL API</button>
+        </form>
+    </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, cfg=cfg, is_admin_route=True, active="settings", ads={})
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, cfg=cfg, is_admin_route=True, ads={}, active="settings")
 
-# --- AUTH & SYSTEM CORE (REMAINS SAME) ---
+# --- LOGIN & AUTH ---
 
 @app.route('/admin-gate', methods=['GET', 'POST'])
 def login():
@@ -695,15 +747,18 @@ def login():
         if check_password_hash(admin['password'], pw):
             session['logged_in'] = True; return redirect('/admin/dashboard')
         flash("Denied.")
-    return render_template_string(f"<!DOCTYPE html><html><head>{BASE_CSS}</head><body class='bg-slate-100 flex items-center justify-center min-h-screen'><form method='POST' class='bg-white p-12 rounded-[4rem] shadow-2xl w-full max-w-md text-center'><img src='{site['logo']}' class='w-24 h-24 rounded-[2rem] mx-auto mb-10'><h2 class='text-4xl font-black mb-10 uppercase italic'>System Lock</h2><input type='password' name='password' class='text-center text-3xl mb-8 p-6' placeholder='••••' required><button class='bg-slate-950 text-white w-full py-6 rounded-3xl font-black'>UNLOCK</button></form></body></html>")
+    return render_template_string(f"<!DOCTYPE html><html><head>{BASE_CSS}</head><body class='bg-slate-100 flex items-center justify-center min-h-screen'><form method='POST' class='bg-white p-12 rounded-[4rem] shadow-2xl w-full max-w-md text-center border-4 border-white'><img src='{site['logo']}' class='w-24 h-24 rounded-[2rem] mx-auto mb-10 shadow-xl border-4 border-slate-50'><h2 class='text-4xl font-black mb-10 uppercase italic tracking-tighter'>System Lock</h2><input type='password' name='password' class='text-center font-black text-3xl mb-8 p-6' placeholder='••••' required><button class='bg-slate-950 text-white w-full py-6 rounded-3xl font-black text-xl shadow-2xl hover:bg-indigo-600 transition'>UNLOCK SYSTEM</button></form></body></html>")
 
 @app.route('/forgot', methods=['GET', 'POST'])
 def forgot():
     if request.method == 'POST':
         if request.form.get('key') == RECOVERY_KEY:
             users_col.update_one({"username": "admin"}, {"$set": {"password": generate_password_hash(request.form.get('pw'))}}, upsert=True)
+            flash("System password reset.")
             return redirect('/admin-gate')
-    return render_template_string(f"<!DOCTYPE html><html><head>{BASE_CSS}</head><body class='bg-slate-100 flex items-center justify-center min-h-screen'><form method='POST' class='bg-white p-12 rounded-[3.5rem] space-y-6'><input name='key' placeholder='Key'><input type='password' name='pw' placeholder='Pass'><button class='btn-main w-full py-5'>RESET</button></form></body></html>")
+    return render_template_string(f"<!DOCTYPE html><html><head>{BASE_CSS}</head><body class='bg-slate-100 flex items-center justify-center min-h-screen'><form method='POST' class='bg-white p-12 rounded-[3.5rem] shadow-xl w-full max-w-md space-y-6'><h2 class='font-black uppercase italic text-center'>Reset Key</h2><input name='key' placeholder='Recovery Key' required><input type='password' name='pw' placeholder='New Password' required><button class='btn-main w-full py-5 text-xl'>RESET NOW</button></form></body></html>")
+
+# --- SYSTEM CORE ---
 
 @app.route('/get/<id>')
 def download_process(id):
