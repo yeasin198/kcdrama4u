@@ -70,7 +70,14 @@ BASE_CSS = """
     .btn-main:hover { background: #4f46e5; transform: scale(1.05); }
     input, textarea, select { border: 2px solid #f1f5f9; border-radius: 18px; padding: 14px 18px; outline: none; background: #fff; width: 100%; transition: 0.3s; }
     input:focus { border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
-    .swiper { width: 100%; border-radius: 2.5rem; height: 400px; margin-bottom: 3rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.2); }
+    
+    /* SLIDER STYLING */
+    .swiper { width: 100%; border-radius: 2.5rem; height: 300px; margin-bottom: 3rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.2); }
+    @media (min-width: 768px) { .swiper { height: 400px; } }
+    .swiper-slide img { width: 100%; height: 100%; object-fit: cover; border-radius: 2.5rem; }
+    .swiper-button-next, .swiper-button-prev { color: white !important; }
+    .swiper-pagination-bullet-active { background: white !important; }
+    
     .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 </style>
@@ -93,7 +100,7 @@ BASE_LAYOUT = """
                 <span class="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">{{ site.name }}</span>
             </a>
             <form action="/" method="GET" class="flex bg-slate-100 rounded-2xl px-5 py-2 w-full max-w-xl border border-slate-200">
-                <input type="text" name="q" placeholder="Search premium apps, games, tools..." class="bg-transparent border-none p-0 w-full text-sm font-semibold outline-none">
+                <input type="text" name="q" placeholder="Search premium apps, games, tools..." class="bg-transparent border-none p-0 w-full text-sm font-semibold outline-none" value="{{ q if q }}">
                 <button type="submit"><i class="fas fa-search text-indigo-600 text-lg"></i></button>
             </form>
         </div>
@@ -179,10 +186,13 @@ BASE_LAYOUT = """
 
     <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
     <script>
-        const swiper = new Swiper('.swiper', {
-            loop: true, autoplay: { delay: 4000 },
-            pagination: { el: '.swiper-pagination', clickable: true },
-            navigation: { nextEl: '.swiper-button-next', prevEl: '.swiper-button-prev' },
+        document.addEventListener('DOMContentLoaded', function () {
+            const swiper = new Swiper('.swiper', {
+                loop: true, 
+                autoplay: { delay: 4000, disableOnInteraction: false },
+                pagination: { el: '.swiper-pagination', clickable: true },
+                navigation: { nextEl: '.swiper-button-next', prevEl: '.swiper-button-prev' },
+            });
         });
     </script>
 </body>
@@ -226,6 +236,8 @@ def home():
             {% endfor %}
         </div>
         <div class="swiper-pagination"></div>
+        <div class="swiper-button-next"></div>
+        <div class="swiper-button-prev"></div>
     </div>
     {% endif %}
 
@@ -250,7 +262,7 @@ def home():
     </div>
     {% endfor %}
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', content), site=site, home_data=home_data, all_media=all_media, is_admin_route=False)
+    return render_template_string(BASE_LAYOUT.replace('{% block content %}{% endblock %}', content), site=site, home_data=home_data, all_media=all_media, q=q, is_admin_route=False)
 
 @app.route('/app/<id>')
 def details(id):
@@ -366,7 +378,7 @@ def admin_categories():
     """
     return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, cats=cats, is_admin_route=True, active="categories")
 
-# --- ADMIN: APPS MANAGER ---
+# --- ADMIN: APPS MANAGER (WITH SEARCH) ---
 
 @app.route('/admin/apps', methods=['GET', 'POST'])
 def admin_apps():
@@ -374,6 +386,12 @@ def admin_apps():
     site = get_site_info()
     cats = list(categories_col.find().sort('name', 1))
     
+    # SEARCH LOGIC
+    admin_q = request.args.get('admin_q', '')
+    query = {}
+    if admin_q:
+        query["name"] = {"$regex": admin_q, "$options": "i"}
+
     if request.method == 'POST':
         apps_col.insert_one({
             "name": request.form.get('name'), "logo": request.form.get('logo'),
@@ -384,9 +402,10 @@ def admin_apps():
         flash("Application published successfully.")
         return redirect('/admin/apps')
     
-    all_apps = list(apps_col.find().sort('_id', -1))
+    all_apps = list(apps_col.find(query).sort('_id', -1))
     content = """
     <h1 class="text-5xl font-black mb-12 uppercase italic tracking-tighter">Apps Manager</h1>
+    
     <div class="grid lg:grid-cols-12 gap-12">
         <form method="POST" class="lg:col-span-4 bg-slate-50 p-10 rounded-[3rem] border-2 border-slate-200 h-fit space-y-4">
             <h2 class="font-black text-indigo-600 uppercase italic">Publish New App</h2>
@@ -401,31 +420,40 @@ def admin_apps():
             <input name="download_link" placeholder="Direct Download URL" required>
             <button class="btn-main w-full py-5 text-lg">PUBLISH APP</button>
         </form>
-        <div class="lg:col-span-8 bg-white border-2 rounded-[3rem] overflow-hidden shadow-xl overflow-x-auto">
-            <table class="w-full text-left">
-                <thead class="bg-slate-950 text-white text-[11px] uppercase font-bold tracking-widest">
-                    <tr><th class="p-6">Asset Details</th><th class="p-6">Category</th><th class="p-6 text-right">Actions</th></tr>
-                </thead>
-                <tbody class="text-sm">
-                    {% for a in all_apps %}
-                    <tr class="border-t hover:bg-slate-50">
-                        <td class="p-6 flex items-center gap-4">
-                            <img src="{{a.logo}}" class="w-12 h-12 rounded-xl border-2 border-white shadow-md">
-                            <span class="font-bold text-slate-800">{{a.name}}</span>
-                        </td>
-                        <td class="p-6 uppercase font-black text-slate-400 text-[10px]">{{a.category}}</td>
-                        <td class="p-6 text-right space-x-4">
-                            <a href="/admin/edit-app/{{a._id}}" class="text-indigo-600 font-bold">EDIT</a>
-                            <a href="/del/app/{{a._id}}" class="text-red-500 font-bold" onclick="return confirm('Delete this app?')">DEL</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        
+        <div class="lg:col-span-8 space-y-6">
+            <!-- ADMIN SEARCH BAR -->
+            <form action="/admin/apps" method="GET" class="flex bg-slate-100 rounded-3xl px-6 py-2 border border-slate-200 shadow-inner">
+                <input type="text" name="admin_q" placeholder="Search Apps by Name..." class="bg-transparent border-none p-0 w-full text-sm font-semibold outline-none" value="{{ admin_q }}">
+                <button type="submit"><i class="fas fa-search text-indigo-600 text-lg"></i></button>
+            </form>
+
+            <div class="bg-white border-2 rounded-[3rem] overflow-hidden shadow-xl overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-950 text-white text-[11px] uppercase font-bold tracking-widest">
+                        <tr><th class="p-6">Asset Details</th><th class="p-6">Category</th><th class="p-6 text-right">Actions</th></tr>
+                    </thead>
+                    <tbody class="text-sm">
+                        {% for a in all_apps %}
+                        <tr class="border-t hover:bg-slate-50 transition">
+                            <td class="p-6 flex items-center gap-4">
+                                <img src="{{a.logo}}" class="w-12 h-12 rounded-xl border-2 border-white shadow-md">
+                                <span class="font-bold text-slate-800">{{a.name}}</span>
+                            </td>
+                            <td class="p-6 uppercase font-black text-slate-400 text-[10px]">{{a.category}}</td>
+                            <td class="p-6 text-right space-x-4">
+                                <a href="/admin/edit-app/{{a._id}}" class="text-indigo-600 font-bold">EDIT</a>
+                                <a href="/del/app/{{a._id}}" class="text-red-500 font-bold" onclick="return confirm('Delete this app?')">DEL</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
     """
-    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, all_apps=all_apps, cats=cats, is_admin_route=True, active="apps")
+    return render_template_string(BASE_LAYOUT.replace('{% block admin_content %}{% endblock %}', content), site=site, all_apps=all_apps, cats=cats, admin_q=admin_q, is_admin_route=True, active="apps")
 
 @app.route('/admin/edit-app/<id>', methods=['GET', 'POST'])
 def edit_app(id):
